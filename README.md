@@ -1,4 +1,4 @@
-# diskscope
+# <img src="assets/icon/diskscope-256.png" width="40" alt="" align="top"> diskscope
 
 **A fast, safety-first disk space analyzer and cleanup tool for Windows, written in Rust.**
 
