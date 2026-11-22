@@ -7,6 +7,7 @@ mod actions;
 
 use super::dialogs::Dialogs;
 use super::header::Header;
+use super::files_view::FilesView;
 use super::history_view::HistoryView;
 use super::labels_view::LabelsView;
 use super::lists::{candidates_ui, GrewView, TimeQuery};
@@ -30,6 +31,7 @@ enum Tab {
     Grew,
     Candidates,
     Labels,
+    Files,
     Review,
     History,
 }
@@ -48,6 +50,11 @@ pub struct App {
     review_sel: HashSet<PathBuf>,
     history: HistoryView,
     labels: LabelsView,
+    files: FilesView,
+    /// Extensions listed in the Files tab.
+    ext_sel: Vec<u16>,
+    /// Extensions to select once the first scan finishes (`--ext`).
+    pending_ext: Option<String>,
     dialogs: Dialogs,
     toast: Option<(String, Instant)>,
     /// Item to select in the tree once the first scan finishes (`--select`).
@@ -57,7 +64,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let _ = crate::cleanup::history::History::default_location().prune(crate::fmt::now());
         let mut app = Self {
@@ -74,6 +81,9 @@ impl App {
             review_sel: HashSet::new(),
             history: HistoryView::default(),
             labels: LabelsView::default(),
+            files: FilesView::default(),
+            ext_sel: Vec::new(),
+            pending_ext: ext,
             dialogs: Dialogs::default(),
             toast: None,
             pending_select: select,
@@ -95,6 +105,7 @@ impl App {
         self.map.reset();
         self.review.clear();
         self.review_sel.clear();
+        self.ext_sel.clear();
         self.job = Some(ScanJob::start(path));
     }
 
@@ -111,6 +122,7 @@ impl App {
                 (Tab::Grew, "Grew since last scan".into()),
                 (Tab::Candidates, format!("Candidates ({})", data.candidates.len())),
                 (Tab::Labels, "By label".into()),
+                (Tab::Files, if self.ext_sel.is_empty() { "Files".into() } else { format!("Files ({})", self.ext_sel.iter().map(|&e| data.tree.exts[e as usize].as_str()).collect::<Vec<_>>().join(" ")) }),
                 (Tab::Review, String::new()),
                 (Tab::History, "History".into()),
             ] {
@@ -157,7 +169,7 @@ impl eframe::App for App {
             Panel::bottom("treemap").resizable(true).default_size(320.0).min_size(120.0).show(ui, |ui| {
                 self.map.ui(ui, &data, self.tree.selected, &mut acts);
             });
-            Panel::right("extensions").resizable(true).default_size(330.0).show(ui, |ui| ext_table::ui(ui, &data));
+            Panel::right("extensions").resizable(true).default_size(330.0).show(ui, |ui| ext_table::ui(ui, &data, &self.ext_sel, &mut acts));
             CentralPanel::default().show(ui, |ui| {
                 self.tabs(ui, &data);
                 match self.tab {
@@ -167,6 +179,7 @@ impl eframe::App for App {
                     Tab::Grew => self.grew.ui(ui, &data, &self.review, &mut acts),
                     Tab::Candidates => candidates_ui(ui, &data, &self.review, &mut acts),
                     Tab::Labels => self.labels.ui(ui, &data, &self.review, &mut acts),
+                    Tab::Files => self.files.ui(ui, &data, &self.ext_sel, &self.review, &mut acts),
                     Tab::Review => review_view::ui(ui, &self.review, &mut self.review_sel, &targets, &mut acts),
                     Tab::History => self.history.ui(ui, &mut acts),
                 }

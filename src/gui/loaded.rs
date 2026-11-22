@@ -20,6 +20,8 @@ pub struct Loaded {
     pub candidates: Vec<Candidate>,
     /// (label, bytes, files) for the By label tab.
     pub label_totals: Vec<(crate::rules::labels::Label, u64, u64)>,
+    /// File node ids per extension, for the Files tab.
+    pub ext_index: crate::views::ext_files::ExtIndex,
     pub prev_snapshot: Option<Snapshot>,
     pub snapshot_note: String,
     pub ao: AoSessions,
@@ -45,6 +47,7 @@ impl Loaded {
             palette: Vec::new(),
             candidates: Vec::new(),
             label_totals: Vec::new(),
+            ext_index: crate::views::ext_files::ExtIndex { by_ext: Vec::new() },
             prev_snapshot,
             snapshot_note,
             ao,
@@ -59,6 +62,7 @@ impl Loaded {
         self.palette = palette(&self.tree, &self.ext_stats);
         self.candidates = detect(&self.tree, &self.ao, crate::fmt::now());
         self.label_totals = super::labels_view::label_totals(&self.tree);
+        self.ext_index = crate::views::ext_files::build_index(&self.tree);
         self.generation += 1;
     }
 

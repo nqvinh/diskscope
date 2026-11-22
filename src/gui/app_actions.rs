@@ -45,6 +45,17 @@ impl App {
         if let Some(i) = self.pending_select.take().and_then(|p| loaded.tree.find(&p)) {
             self.tree.reveal(&loaded.tree, i);
         }
+        if let Some(list) = self.pending_ext.take() {
+            for want in list.split([',', ' ']).filter(|s| !s.is_empty()) {
+                let want = if want.starts_with('.') { want.to_lowercase() } else { format!(".{}", want.to_lowercase()) };
+                if let Some(e) = loaded.tree.exts.iter().position(|x| *x == want) {
+                    self.ext_sel.push(e as u16);
+                }
+            }
+            if !self.ext_sel.is_empty() {
+                self.tab = Tab::Files;
+            }
+        }
         if let Some(name) = self.pending_tab.take() {
             self.tab = match name.to_lowercase().as_str() {
                 "recent" => Tab::Recent,
@@ -52,6 +63,7 @@ impl App {
                 "grew" => Tab::Grew,
                 "candidates" => Tab::Candidates,
                 "labels" | "by-label" => Tab::Labels,
+                "files" => Tab::Files,
                 "review" => Tab::Review,
                 "history" => Tab::History,
                 _ => Tab::Tree,
@@ -108,6 +120,17 @@ impl App {
                         .collect();
                     added_any |= safe.into_iter().filter(|i| self.review.add(i.clone()).is_ok()).count() > 0;
                 }
+                Act::ExtSelect { exts, add } => {
+                    if !add {
+                        self.ext_sel.clear();
+                    }
+                    for e in exts {
+                        if !self.ext_sel.contains(&e) {
+                            self.ext_sel.push(e);
+                        }
+                    }
+                    self.tab = Tab::Files;
+                }
                 Act::Delete { shift, targets } => match delete_request(shift, targets) {
                     Ok(req) => self.dialogs.open(req),
                     Err(e) => self.toast(e),
@@ -130,7 +153,7 @@ impl App {
         let Some(shift) = ui.input(|i| i.key_pressed(egui::Key::Delete).then_some(i.modifiers.shift)) else { return };
         let targets = match self.tab {
             Tab::Review => review_view::targets(&self.review, &self.review_sel, false),
-            Tab::Tree => match self.tree.selected.map(|n| node_item(data, n, "Del in tree".into())) {
+            Tab::Tree | Tab::Files => match self.tree.selected.map(|n| node_item(data, n, "Del in tree".into())) {
                 Some(Ok(item)) => vec![item],
                 Some(Err(e)) => return acts.push(Act::Toast(e)),
                 None => Vec::new(),

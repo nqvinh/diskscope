@@ -4,6 +4,7 @@ mod action_bar;
 mod app;
 mod dialogs;
 mod ext_table;
+mod files_view;
 mod header;
 mod labels_view;
 mod history_view;
@@ -20,7 +21,7 @@ use eframe::egui;
 use std::path::PathBuf;
 
 /// Opens the window; scans `initial` right away when given.
-pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>) -> eframe::Result {
+pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1500.0, 950.0])
@@ -28,5 +29,5 @@ pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String
             .with_title("diskscope"),
         ..Default::default()
     };
-    eframe::run_native("diskscope", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, initial, select, tab)))))
+    eframe::run_native("diskscope", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, initial, select, tab, ext)))))
 }

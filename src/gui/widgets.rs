@@ -16,6 +16,8 @@ pub enum Act {
     AddAllSafe,
     /// Del (`shift` = false) or Shift+Del on these targets: opens the confirm dialog.
     Delete { shift: bool, targets: Vec<crate::cleanup::review::ReviewItem> },
+    /// Show the files of these extensions (`add` = keep the current selection too).
+    ExtSelect { exts: Vec<u16>, add: bool },
     Unreview(PathBuf),
     Explorer(PathBuf),
     Toast(String),
