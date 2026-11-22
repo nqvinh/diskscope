@@ -1,0 +1,28 @@
+[package]
+name = "diskscope"
+version = "0.1.0"
+edition = "2021"
+description = "WizTree-like disk analyzer with a review-first cleanup flow (Windows)"
+license = "MIT"
+repository = "https://github.com/nqvinh/diskscope"
+keywords = ["disk-usage", "ntfs", "mft", "windows", "cleanup"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow"] }
+egui_extras = { version = "0.37", default-features = false }
+rayon = "1.12"
+trash = "5.4"
+rfd = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_ProcessStatus",
+  "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_System_Console", "Win32_System_Time", "Win32_Security", "Win32_System_IO",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+strip = true

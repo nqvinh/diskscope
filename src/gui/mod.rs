@@ -1,0 +1,31 @@
+//! The window (eframe/egui).
+
+mod action_bar;
+mod app;
+mod dialogs;
+mod ext_table;
+mod header;
+mod history_view;
+mod list_table;
+mod live_view;
+mod lists;
+mod loaded;
+mod review_view;
+mod tree_view;
+mod treemap_view;
+mod widgets;
+
+use eframe::egui;
+use std::path::PathBuf;
+
+/// Opens the window; scans `initial` right away when given.
+pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>) -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1500.0, 950.0])
+            .with_min_inner_size([900.0, 600.0])
+            .with_title("diskscope"),
+        ..Default::default()
+    };
+    eframe::run_native("diskscope", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, initial, select, tab)))))
+}
