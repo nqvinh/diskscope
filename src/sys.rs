@@ -43,6 +43,12 @@ pub fn drives() -> Vec<Drive> {
         .collect()
 }
 
+/// Roots for "scan all drives": local NTFS drives only, so virtual cloud drives (Google Drive
+/// shows up as a fixed FAT32 disk) and other non-NTFS drives are not walked over the network.
+pub fn all_drive_roots() -> Vec<PathBuf> {
+    drives().into_iter().filter(|d| filesystem_name(&d.root).as_deref() == Some("NTFS")).map(|d| PathBuf::from(d.root)).collect()
+}
+
 /// (total, free) bytes of the volume holding `root`.
 pub fn disk_space(root: &str) -> Option<(u64, u64)> {
     let w = wide(root);

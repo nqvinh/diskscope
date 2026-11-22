@@ -10,17 +10,25 @@ use crate::views::snapshot;
 use serde_json::{json, Value};
 
 pub fn run(o: &Options) -> i32 {
-    if !o.path.exists() {
-        eprintln!("error: {} does not exist", o.path.display());
+    if let Some(p) = o.paths.iter().find(|p| !p.exists()) {
+        eprintln!("error: {} does not exist", p.display());
         return 2;
     }
-    let tree = match crate::scan::scan_with(&o.path, &Progress::default(), o.method) {
+    let tree = match crate::scan::scan_many(&o.paths, &Progress::default(), o.method) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("error: {e}");
             return 3;
         }
     };
+    if crate::scan::profile::on() {
+        // Time what the window does after a scan (snapshot written to a temp file, not the baseline).
+        let tmp = std::env::temp_dir().join(format!("diskscope-profile-{}.snap", std::process::id()));
+        let _ = crate::scan::profile::time("derive: snapshot save", || snapshot::save(&tree, &tmp));
+        std::fs::remove_file(&tmp).ok();
+        drop(crate::gui::loaded::Derived::compute(&tree, &AoSessions::default()));
+        eprintln!("[profile] peak private memory            {:>9} MB", crate::sys::memory().peak >> 20);
+    }
     let report = build(&tree, o);
     if o.save_snapshot {
         if let Err(e) = snapshot::save(&tree, &snapshot::snapshot_file(&tree.root_path)) {
@@ -54,7 +62,7 @@ fn build(tree: &Tree, o: &Options) -> Value {
     let r = tree.node(0);
     let now = crate::fmt::now();
     let mut v = json!({
-        "root": tree.root_path.display().to_string(),
+        "root": tree.root_display(),
         "under": tree.path(root).display().to_string(),
         "scanned_at": date(tree.scanned_at),
         "elapsed_ms": tree.elapsed_ms,

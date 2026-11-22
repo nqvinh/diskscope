@@ -23,6 +23,9 @@ pub struct Growth {
 }
 
 pub fn snapshot_file(root: &Path) -> PathBuf {
+    if root.as_os_str().is_empty() {
+        return crate::sys::data_dir().join("snapshots").join("all-drives.tsv"); // "This PC" scans
+    }
     let key: String = root
         .to_string_lossy()
         .chars()

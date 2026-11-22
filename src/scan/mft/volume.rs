@@ -12,6 +12,7 @@ const FSCTL_GET_NTFS_VOLUME_DATA: u32 = 0x0009_0064;
 
 pub struct Volume {
     handle: HANDLE,
+    letter: char,
     pub sector: usize,
     pub cluster: u64,
     pub record: usize,
@@ -21,7 +22,7 @@ pub struct Volume {
     pub free_clusters: u64,
 }
 
-// The handle is only used by one thread at a time (the reader thread owns the Volume).
+// A handle is only used by one thread at a time (each reader thread owns its own Volume).
 unsafe impl Send for Volume {}
 
 impl Drop for Volume {
@@ -41,7 +42,7 @@ impl Volume {
         if h == INVALID_HANDLE_VALUE {
             return Err(err(&format!("cannot open volume {letter}: for reading")));
         }
-        let mut v = Volume { handle: h, sector: 0, cluster: 0, record: 0, mft_valid: 0, mft_lcn: 0, total_clusters: 0, free_clusters: 0 };
+        let mut v = Volume { handle: h, letter, sector: 0, cluster: 0, record: 0, mft_valid: 0, mft_lcn: 0, total_clusters: 0, free_clusters: 0 };
         let mut out = [0u8; 128];
         let mut got = 0u32;
         let ok = unsafe { DeviceIoControl(h, FSCTL_GET_NTFS_VOLUME_DATA, null(), 0, out.as_mut_ptr().cast(), out.len() as u32, &mut got, null_mut()) };
@@ -59,6 +60,11 @@ impl Volume {
             return Err("unusual NTFS geometry; using the directory walker".into());
         }
         Ok(v)
+    }
+
+    /// A second independent read-only handle (its own file position) for a parallel reader.
+    pub fn reopen(&self) -> Result<Self, String> {
+        Self::open(self.letter)
     }
 
     /// Reads exactly `buf.len()` bytes at a byte offset (sector-aligned offsets and lengths).

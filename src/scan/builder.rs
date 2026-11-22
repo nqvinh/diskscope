@@ -1,9 +1,10 @@
-//! Shared tree builder for both scan paths (directory walker and NTFS MFT reader): appends one
-//! folder's entries at a time, groups many small files per extension, never descends reparse
+//! Shared tree builder for both scan paths (directory walker and NTFS MFT reader): commits one
+//! prepared folder at a time (see `prepare` for grouping and labels), never descends reparse
 //! points, and finishes the tree (roll-up, timings) the same way.
 
-use super::{aggregate, entry::RawEntry, extensions::ext_of, Progress};
-use crate::model::{Node, Tree, F_CANDIDATE, F_DENIED, F_DIR, F_GROUP, F_REPARSE, NONE};
+use super::prepare::{prepare, Ctx, Prepared};
+use super::{aggregate, entry::RawEntry, Progress};
+use crate::model::{Node, Tree, F_CANDIDATE, F_DENIED, F_DIR, F_REPARSE, NONE};
 use crate::rules::candidate_rules::{classify, old_versions, Confidence};
 use crate::rules::candidates::{LiveSink, LiveSuggestion};
 use crate::rules::labels::{self, Label};
@@ -15,14 +16,12 @@ use std::time::Instant;
 
 const MAX_DENIED_PATHS: usize = 2000;
 const MAX_EXTS: usize = 60_000;
-/// Files below this size are grouped when a folder holds more than GROUP_MIN_COUNT of them...
-const GROUP_MAX_SIZE: u64 = 64 * 1024;
-const GROUP_MIN_COUNT: usize = 16;
-/// ...and only extensions with at least this many small files there (a lone file stays itself).
-const GROUP_MIN_PER_EXT: usize = 4;
 
-fn is_small(e: &RawEntry) -> bool {
-    !e.is_dir() && e.size < GROUP_MAX_SIZE
+/// A sub-folder to descend: its node, source id (MFT record) and rule context (holds its name).
+pub struct Child {
+    pub node: u32,
+    pub id: u64,
+    pub ctx: Ctx,
 }
 
 pub struct Builder {
@@ -51,90 +50,66 @@ impl Builder {
         Self { tree, ext_ids: HashMap::new(), live, slots: HashMap::new(), root_depth }
     }
 
-    fn ext_id(&mut self, name: &str) -> u16 {
-        let Some(ext) = ext_of(name) else { return 0 };
-        if let Some(&id) = self.ext_ids.get(&ext) {
+    /// Interned id of a lowercase extension (0 = none, or past the table limit).
+    fn ext_id(&mut self, ext: Option<&str>) -> u16 {
+        let Some(ext) = ext else { return 0 };
+        if let Some(&id) = self.ext_ids.get(ext) {
             return id;
         }
         if self.tree.exts.len() >= MAX_EXTS {
             return 0;
         }
         let id = self.tree.exts.len() as u16;
-        self.tree.exts.push(ext.clone());
-        self.ext_ids.insert(ext, id);
+        self.tree.exts.push(ext.to_string());
+        self.ext_ids.insert(ext.to_string(), id);
         id
     }
 
-    /// Appends one folder's entries; returns (node, name, entry id) of the sub-folders to descend.
-    /// A folder with many small files keeps them as one entry per extension: exact totals and
-    /// newest dates, a fraction of the memory (node_modules can hold millions of tiny files).
-    pub fn add(&mut self, parent: u32, batch: Vec<RawEntry>) -> Vec<(u32, String, u64)> {
-        let group = batch.iter().filter(|e| is_small(e)).count() > GROUP_MIN_COUNT;
-        let mut per_ext: HashMap<Option<String>, usize> = HashMap::new();
-        if group {
-            for e in batch.iter().filter(|e| is_small(e)) {
-                *per_ext.entry(ext_of(&e.name)).or_default() += 1;
-            }
-        }
-        let plabel = Label::from_u8(self.tree.node(parent).label);
-        let pname = if parent == 0 {
+    /// Rule context of an existing folder (label, name, depth of its children).
+    pub fn ctx_of(&self, parent: u32) -> Ctx {
+        let name = if parent == 0 {
             self.tree.root_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
         } else {
             self.tree.name(parent).to_string()
         };
-        let depth = self.depth(parent) + 1;
-        let siblings: Vec<String> = batch.iter().map(|e| e.name.to_lowercase()).collect();
-        let mut groups: HashMap<u16, Node> = HashMap::new();
-        let mut descend = Vec::new();
-        let (mut new_dirs, mut bytes, mut newest) = (Vec::new(), 0u64, 0u32);
-        for e in batch {
-            if !e.is_dir() {
-                bytes += e.size;
-                newest = newest.max(e.modified);
+        Ctx { label: Label::from_u8(self.tree.node(parent).label), name, depth: self.depth(parent) + 1 }
+    }
+
+    /// Appends one folder's entries (prepare + commit in one step).
+    pub fn add(&mut self, parent: u32, batch: Vec<RawEntry>) -> Vec<Child> {
+        let ctx = self.ctx_of(parent);
+        self.commit(parent, ctx.depth, prepare(&ctx, batch))
+    }
+
+    /// Pushes a prepared folder (`depth` = its children's depth); returns the sub-folders to
+    /// descend, each with the context its own batch needs.
+    pub fn commit(&mut self, parent: u32, depth: usize, p: Prepared) -> Vec<Child> {
+        let (mut descend, mut new_dirs) = (Vec::new(), Vec::new());
+        for it in p.items {
+            let mut node = it.node;
+            let (dir, reparse) = (node.flags & F_DIR != 0, node.flags & F_REPARSE != 0);
+            if !dir {
+                node.ext = self.ext_id(it.ext.as_deref());
+            } else if reparse {
+                self.tree.reparse_skipped += 1;
             }
-            if group && is_small(&e) && per_ext.get(&ext_of(&e.name)).copied().unwrap_or(0) >= GROUP_MIN_PER_EXT {
-                let ext = self.ext_id(&e.name);
-                let label = labels::file(&e.name, plabel) as u8;
-                let g = groups.entry(ext).or_insert_with(|| Node { flags: F_GROUP, ext, label, ..Node::default() });
-                g.size += e.size;
-                g.alloc += e.alloc;
-                g.files += 1;
-                g.modified = g.modified.max(e.modified);
-                g.created = g.created.max(e.created);
-                g.accessed = g.accessed.max(e.accessed);
-                continue;
-            }
-            let label = if e.is_dir() { labels::folder(&e.name, &pname, plabel, &siblings, depth) } else { labels::file(&e.name, plabel) };
-            let mut node = Node { modified: e.modified, created: e.created, accessed: e.accessed, label: label as u8, ..Node::default() };
-            if e.is_dir() {
-                node.flags = F_DIR;
-                if e.is_reparse() {
-                    node.flags |= F_REPARSE;
-                    self.tree.reparse_skipped += 1;
-                }
-            } else {
-                node.size = e.size;
-                node.alloc = e.alloc;
-                node.files = 1;
-                node.ext = self.ext_id(&e.name);
-                if e.is_reparse() {
-                    node.flags |= F_REPARSE;
-                }
-            }
-            let idx = self.tree.push(&e.name, node, parent);
-            if e.is_dir() && !e.is_reparse() {
+            let idx = self.tree.push(&it.name, node, parent);
+            if dir && !reparse {
                 new_dirs.push(idx);
-                descend.push((idx, e.name, e.id));
+                let ctx = Ctx { label: Label::from_u8(node.label), name: it.name, depth: depth + 1 };
+                descend.push(Child { node: idx, id: it.id, ctx });
             }
         }
-        for (ext, mut g) in groups {
-            g.items = g.files - 1; // the roll-up adds 1 per entry, so the folder counts every file
-            let ext = &self.tree.exts[ext as usize];
-            let name = if ext.is_empty() { format!("[{} small files]", g.files) } else { format!("[{} small {ext} files]", g.files) };
-            self.tree.push(&name, g, parent);
+        for g in p.groups {
+            let mut node = g.node;
+            node.ext = self.ext_id(g.ext.as_deref());
+            node.items = node.files - 1; // the roll-up adds 1 per entry, so the folder counts every file
+            let ext = &self.tree.exts[node.ext as usize];
+            let name = if ext.is_empty() { format!("[{} small files]", node.files) } else { format!("[{} small {ext} files]", node.files) };
+            self.tree.push(&name, node, parent);
         }
         if let Some(live) = self.live.clone() {
-            self.live_update(&live, parent, &new_dirs, bytes, newest);
+            self.live_update(&live, parent, &new_dirs, p.bytes, p.newest);
         }
         descend
     }
@@ -212,7 +187,7 @@ impl Builder {
         let mut tree = self.tree;
         tree.nodes.shrink_last();
         tree.names.shrink_last();
-        aggregate::roll_up(&mut tree);
+        super::profile::time("roll-up (folder totals)", || aggregate::roll_up(&mut tree));
         tree.cancelled = progress.cancel.load(Relaxed);
         tree.scanned_at = crate::fmt::now();
         tree.elapsed_ms = start.elapsed().as_millis() as u64;

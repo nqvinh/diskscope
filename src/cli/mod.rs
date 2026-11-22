@@ -9,6 +9,8 @@ pub const HELP: &str = "diskscope - disk usage report (read-only)
 
 USAGE:
   diskscope scan <path> [options]       scan a drive (C:) or a folder and print a report
+  diskscope scan C: D: ... | all        scan several drives at the same time (one tree;
+                                         all = every local NTFS drive)
   diskscope [path]                       open the window (and scan <path> if given)
 
 OPTIONS (scan):
@@ -29,7 +31,8 @@ The CLI never deletes anything. Cleanup only happens in the window, after review
 explicit confirmation.";
 
 pub struct Options {
-    pub path: PathBuf,
+    /// One path, or several drives scanned side by side into one tree.
+    pub paths: Vec<PathBuf>,
     pub json: bool,
     pub top: usize,
     pub recent: Option<u32>,
@@ -45,7 +48,7 @@ pub struct Options {
 pub fn parse(args: &[String]) -> Result<Options, String> {
     let mut it = args.iter();
     let mut o = Options {
-        path: PathBuf::new(),
+        paths: Vec::new(),
         json: false,
         top: 20,
         recent: None,
@@ -74,11 +77,11 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--depth" => o.depth = Some(it.next().and_then(|s| s.parse().ok()).ok_or("--depth needs a number")?),
             "--under" => o.under = Some(PathBuf::from(it.next().ok_or("--under needs a path")?)),
             s if s.starts_with("--") => return Err(format!("unknown option {s} (there is no delete option)")),
-            s if o.path.as_os_str().is_empty() => o.path = PathBuf::from(s),
-            s => return Err(format!("unexpected argument {s}")),
+            "all" => o.paths.extend(crate::sys::all_drive_roots()),
+            s => o.paths.push(PathBuf::from(s)),
         }
     }
-    if o.path.as_os_str().is_empty() {
+    if o.paths.is_empty() {
         return Err("scan needs a path, e.g. diskscope scan C: --top 50".into());
     }
     Ok(o)
@@ -112,4 +115,5 @@ fn parses_options_and_rejects_unknown_ones() {
     assert!(o.json && o.candidates && o.top == 50 && o.recent == Some(7 * 86_400));
     assert!(parse(&a("C: --delete")).is_err());
     assert!(parse(&a("--json")).is_err());
+    assert_eq!(parse(&a("C: D: --top 3")).unwrap().paths.len(), 2);
 }

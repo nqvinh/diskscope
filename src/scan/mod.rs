@@ -3,6 +3,8 @@ pub mod builder;
 pub mod entry;
 pub mod extensions;
 pub mod mft;
+pub mod prepare;
+pub mod profile;
 pub mod walker;
 
 use crate::model::Tree;
@@ -39,7 +41,7 @@ pub fn scan_with(root: &Path, progress: &Progress, method: Method) -> Result<Tre
     let root = normalize_root(root);
     let mut note = String::new();
     if method != Method::Walker {
-        match mft::scan(&root, progress) {
+        match profile::time("mft total", || mft::scan(&root, progress)) {
             Ok(t) => return Ok(t),
             Err(e) if method == Method::Mft => return Err(e),
             Err(e) => note = e,
@@ -48,9 +50,36 @@ pub fn scan_with(root: &Path, progress: &Progress, method: Method) -> Result<Tre
             c.store(0, Relaxed);
         }
     }
-    let mut t = walker::walk(&root, progress);
+    let mut t = profile::time("walker total", || walker::walk(&root, progress));
     t.method_note = note;
     Ok(t)
+}
+
+/// Scans several roots (drives) into one tree under a virtual "This PC" root. Each root runs its
+/// own pipeline on its own thread (DISKSCOPE_DRIVES_PAR=0: one after another, for comparisons);
+/// progress, cancel and live suggestions are shared. One root = a normal scan.
+pub fn scan_many(roots: &[PathBuf], progress: &Progress, method: Method) -> Result<Tree, String> {
+    if roots.len() == 1 {
+        return scan_with(&roots[0], progress, method);
+    }
+    let start = std::time::Instant::now();
+    let one = |r: &PathBuf| scan_with(r, progress, method);
+    let trees: Vec<Result<Tree, String>> = if profile::knob("DISKSCOPE_DRIVES_PAR", 1) != 0 {
+        std::thread::scope(|s| {
+            let hs: Vec<_> = roots.iter().map(|r| s.spawn(move || one(r))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("scan thread panicked".into()))).collect()
+        })
+    } else {
+        roots.iter().map(one).collect()
+    };
+    let mut all = Tree::multi_root();
+    for t in trees.into_iter().rev() {
+        all.graft(t?); // reversed: the first root ends up first among the drive nodes
+    }
+    all.scanned_at = crate::fmt::now();
+    all.elapsed_ms = start.elapsed().as_millis() as u64;
+    profile::report("all drives (scan + graft)", start.elapsed());
+    Ok(all)
 }
 
 /// `C:` -> `C:\` (a bare drive letter means the current directory on that drive otherwise).

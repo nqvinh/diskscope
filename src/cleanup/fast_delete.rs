@@ -84,16 +84,22 @@ fn list(root: &Path) -> std::io::Result<Listing> {
         None => Ok(out.into_inner().expect("listing")),
     }
 }
-/// Deletes `root` and everything under it. Err carries the number of failures and the first one.
-pub fn remove_tree(root: &Path, progress: &DeleteProgress) -> Result<(), String> {
-    // Deleting waits on the disk like scanning does: more requests in flight keep an SSD busy.
+/// Runs `f` on a 32-thread pool: deleting waits on the disk like scanning does, so more requests
+/// in flight keep an SSD busy. Everything deleted inside shares this one pool.
+pub fn in_delete_pool<T: Send>(f: impl FnOnce() -> T + Send) -> T {
     match rayon::ThreadPoolBuilder::new().num_threads(32).build() {
-        Ok(pool) => pool.install(|| remove_tree_inner(root, progress)),
-        Err(_) => remove_tree_inner(root, progress),
+        Ok(pool) => pool.install(f),
+        Err(_) => f(),
     }
 }
 
-fn remove_tree_inner(root: &Path, progress: &DeleteProgress) -> Result<(), String> {
+/// Deletes `root` and everything under it. Err carries the number of failures and the first one.
+pub fn remove_tree(root: &Path, progress: &DeleteProgress) -> Result<(), String> {
+    in_delete_pool(|| remove_tree_here(root, progress))
+}
+
+/// `remove_tree` on the current rayon pool (call it inside `in_delete_pool`).
+pub fn remove_tree_here(root: &Path, progress: &DeleteProgress) -> Result<(), String> {
     let l = list(root).map_err(|e| format!("could not list the folder: {e}"))?;
     let errors = Mutex::new((0usize, String::new()));
     let fail = |p: &Path, e: std::io::Error| {

@@ -10,7 +10,10 @@ struct T {
 
 impl T {
     fn new() -> Self {
-        let mut t = T { recs: vec![Rec::default(); 64], names: String::new() };
+        Self::with(64)
+    }
+    fn with(records: usize) -> Self {
+        let mut t = T { recs: vec![Rec::default(); records], names: String::new() };
         t.set(ROOT_RECORD, ROOT_RECORD, ".", true, 0, 0);
         t
     }
@@ -61,6 +64,30 @@ fn builds_the_volume_tree_from_parent_links() {
     assert!(tree.find(Path::new("Users\\alice\\[20 small .js files]")).is_some(), "same grouping as the walker");
     let link = tree.find(Path::new("Users\\alice\\link")).unwrap();
     assert!(tree.node(link).is_reparse() && tree.node(link).first_child == crate::model::NONE);
+}
+
+#[test]
+fn parallel_build_matches_serial_node_for_node() {
+    // 5000 folders in one level (more than one slice), each with files, sub-folders and rule names.
+    let n = 5000u32;
+    let mut t = T::with(16 + n as usize * 4);
+    t.set(15, 5, "projects", true, 0, 0);
+    for k in 0..n {
+        let base = 16 + k * 4;
+        t.set(base, 15, &format!("p{k}"), true, 0, 0);
+        t.set(base + 1, base, if k % 3 == 0 { "node_modules" } else { "src" }, true, 0, 0);
+        t.set(base + 2, base, "Cargo.toml", false, 300 + k as u64, 0);
+        t.set(base + 3, base + 1, &format!("f{k}.png"), false, 70_000 + k as u64, 0);
+    }
+    let table = t.table();
+    let run = |par| build_with(&table, Path::new(""), PathBuf::from("X:\\"), 4096, &Progress::default(), Instant::now(), par).unwrap();
+    let (a, b) = (run(false), run(true));
+    assert_eq!(a.len(), b.len());
+    for i in 0..a.len() as u32 {
+        let (x, y) = (a.node(i), b.node(i));
+        assert_eq!((a.name(i), x.parent, x.size, x.label, x.flags, x.ext), (b.name(i), y.parent, y.size, y.label, y.flags, y.ext), "node {i}");
+    }
+    assert_eq!(a.exts, b.exts);
 }
 
 #[test]

@@ -3,11 +3,12 @@
 
 use super::action_log::ActionLog;
 use super::confirm::{ConfirmedPlan, Mode};
-use super::fast_delete::{remove_file_force, remove_tree, DeleteProgress};
-use std::os::windows::fs::MetadataExt;
-use std::sync::atomic::Ordering::Relaxed;
+use super::fast_delete::{in_delete_pool, remove_file_force, remove_tree_here, DeleteProgress};
 use crate::rules::blocklist::blocked_reason;
+use rayon::prelude::*;
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering::Relaxed;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ItemResult {
@@ -23,8 +24,9 @@ pub struct Outcome {
 }
 
 /// Executes `plan` (consumed: a plan runs once). Recycle Bin: one batched Windows operation for
-/// every valid item, then each item is verified. Permanent: item by item with the parallel tree
-/// delete; Cancel (in `progress`) is honoured between items and between files.
+/// every valid item, then each item is verified. Permanent: the items run in parallel
+/// on one shared delete pool (so different volumes overlap too); Cancel (in `progress`) is
+/// honoured between items and between files.
 pub fn execute(plan: ConfirmedPlan, log: &ActionLog, progress: &DeleteProgress) -> Vec<Outcome> {
     let mode = plan.mode();
     let items = plan.items();
@@ -42,8 +44,8 @@ pub fn execute(plan: ConfirmedPlan, log: &ActionLog, progress: &DeleteProgress) 
             }
             progress.items_done.store(items.len() as u64, Relaxed);
         }
-        Mode::Permanent => {
-            for (it, r) in items.iter().zip(results.iter_mut()) {
+        Mode::Permanent => in_delete_pool(|| {
+            items.par_iter().zip(results.par_iter_mut()).with_max_len(1).for_each(|(it, r)| {
                 if r.is_none() {
                     *r = if progress.cancel.load(Relaxed) {
                         Some(ItemResult::Skipped("cancelled before this item".into()))
@@ -52,8 +54,8 @@ pub fn execute(plan: ConfirmedPlan, log: &ActionLog, progress: &DeleteProgress) 
                     };
                 }
                 progress.items_done.fetch_add(1, Relaxed);
-            }
-        }
+            })
+        }),
     }
     let action = if mode == Mode::RecycleBin { "recycle" } else { "delete-permanent" };
     items
@@ -89,7 +91,7 @@ fn delete_permanently(path: &Path, progress: &DeleteProgress) -> Result<(), Stri
         return if md.is_dir() || md.file_attributes() & 0x10 != 0 { std::fs::remove_dir(path) } else { std::fs::remove_file(path) }.map_err(|e| explain(&e));
     }
     if md.is_dir() {
-        remove_tree(path, progress)
+        remove_tree_here(path, progress)
     } else {
         remove_file_force(path).map_err(|e| explain(&e))?;
         progress.files_done.fetch_add(1, Relaxed);
@@ -141,6 +143,29 @@ mod tests {
         assert!(!gone.exists() && keep.exists());
         let lines = std::fs::read_to_string(base.join("log").join("actions.jsonl")).unwrap();
         assert_eq!(lines.lines().count(), 2);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn many_items_delete_in_parallel_and_only_those() {
+        let base = std::env::temp_dir().join(format!("diskscope-exec-par-{}", std::process::id()));
+        let mut list = ReviewList::default();
+        for i in 0..40 {
+            let d = base.join(format!("item{i:02}")).join("deep").join("er");
+            std::fs::create_dir_all(&d).unwrap();
+            for f in 0..5 {
+                std::fs::write(d.join(format!("f{f}.bin")), [1u8; 100]).unwrap();
+            }
+            list.add(ReviewItem { path: base.join(format!("item{i:02}")), size: 500, is_dir: true, items: 0, note: String::new() }).unwrap();
+        }
+        std::fs::create_dir_all(base.join("keep")).unwrap();
+        let plan = confirm_permanent(&list, true, true, "DELETE").unwrap();
+        let progress = DeleteProgress::default();
+        let out = execute(plan, &ActionLog::new(base.join("log")), &progress);
+        assert_eq!(out.len(), 40);
+        assert!(out.iter().all(|o| o.result == ItemResult::Done), "{out:?}");
+        assert_eq!((progress.items_done.load(Relaxed), progress.files_done.load(Relaxed)), (40, 200));
+        assert!(base.join("keep").exists() && !base.join("item00").exists());
         std::fs::remove_dir_all(&base).ok();
     }
 }

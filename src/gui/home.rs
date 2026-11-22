@@ -36,8 +36,16 @@ pub fn ui(ui: &mut Ui, drives: &[Drive], elevated: bool) -> Option<PathBuf> {
         }
     });
     ui.add_space(10.0);
-    if ui.add(egui::Button::new(RichText::new("Scan a folder…").size(15.0)).min_size(Vec2::new(180.0, 32.0))).clicked() {
-        pick = rfd::FileDialog::new().pick_folder();
-    }
+    ui.horizontal(|ui| {
+        if drives.len() > 1 {
+            let all = egui::Button::new(RichText::new("Scan all drives at once").size(15.0).strong()).min_size(Vec2::new(220.0, 32.0));
+            if ui.add(all).on_hover_text("Every local NTFS drive is scanned at the same time and shown in one tree (\"This PC\"). Cloud drives such as Google Drive are left out.").clicked() {
+                pick = Some(PathBuf::from(crate::model::graft::ALL_DRIVES));
+            }
+        }
+        if ui.add(egui::Button::new(RichText::new("Scan a folder…").size(15.0)).min_size(Vec2::new(180.0, 32.0))).clicked() {
+            pick = rfd::FileDialog::new().pick_folder();
+        }
+    });
     pick
 }

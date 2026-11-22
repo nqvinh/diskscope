@@ -171,7 +171,10 @@ impl Tree {
         let rel = strip_prefix_ci(path, &self.root_path).unwrap_or(path);
         let mut cur = 0u32;
         for comp in rel.components() {
-            let want = comp.as_os_str().to_string_lossy().to_lowercase();
+            let mut want = comp.as_os_str().to_string_lossy().to_lowercase();
+            if let std::path::Component::Prefix(_) = comp {
+                want.push('\\'); // several drives in one tree: drive nodes are named "C:\"
+            }
             if want.is_empty() || want == "\\" || want == "." {
                 continue;
             }

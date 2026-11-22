@@ -12,7 +12,7 @@ mod home;
 mod list_table;
 mod live_view;
 mod lists;
-mod loaded;
+pub mod loaded;
 mod review_view;
 mod settings;
 mod tool_dialog;

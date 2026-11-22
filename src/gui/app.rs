@@ -111,7 +111,7 @@ impl App {
     }
 
     fn start(&mut self, path: PathBuf) {
-        if !path.exists() {
+        if !path.exists() && !super::loaded::is_all_drives(&path) {
             self.toast(format!("{} does not exist", path.display()));
             return;
         }
