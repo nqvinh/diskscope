@@ -4,6 +4,7 @@ mod action_bar;
 mod app;
 mod dialogs;
 mod ext_table;
+mod compare_view;
 mod files_view;
 mod header;
 mod labels_view;

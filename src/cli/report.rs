@@ -31,7 +31,7 @@ pub fn run(o: &Options) -> i32 {
     }
     let report = build(&tree, o);
     if o.save_snapshot {
-        if let Err(e) = snapshot::save(&tree, &snapshot::snapshot_file(&tree.root_path)) {
+        if let Err(e) = crate::views::snapshot_history::save(&tree) {
             eprintln!("warning: snapshot not saved: {e}");
         }
     }
@@ -116,7 +116,7 @@ fn build(tree: &Tree, o: &Options) -> Value {
             .collect();
     }
     if o.grew {
-        v["grew"] = match snapshot::load(&snapshot::snapshot_file(&tree.root_path)) {
+        v["grew"] = match crate::views::snapshot_history::latest(&tree.root_path) {
             None => json!({ "error": "no previous snapshot for this path (run once with --save-snapshot or scan it in the window)" }),
             Some(prev) => json!({ "since": date(prev.taken_at), "folders": snapshot::grew(tree, &prev, 50 << 20, o.top).iter().map(|g| json!({
                 "path": tree.path(g.node).display().to_string(), "grew": size(g.new - g.old), "old": size(g.old), "new": size(g.new) })).collect::<Vec<_>>() }),

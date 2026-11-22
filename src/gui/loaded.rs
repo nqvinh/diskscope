@@ -6,7 +6,8 @@ use crate::rules::excludes::{never_suggested, Exclude, ScanFilter};
 use crate::rules::{ao_sessions::AoSessions, candidates::{detect, Candidate, LiveSink}};
 use crate::scan::extensions::{ext_stats, palette, ExtStat};
 use crate::scan::{scan_many, Method, Progress};
-use crate::views::snapshot::{self, Snapshot};
+use crate::views::snapshot::Snapshot;
+use crate::views::snapshot_history;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -33,14 +34,13 @@ pub struct Loaded {
 
 impl Loaded {
     pub fn build(tree: Tree, ao: AoSessions, never_suggest: Vec<String>) -> Self {
-        let file = snapshot::snapshot_file(&tree.root_path);
-        let prev_snapshot = snapshot::load(&file);
+        let prev_snapshot = snapshot_history::latest(&tree.root_path);
         let snapshot_note = if tree.cancelled {
-            "scan cancelled: baseline not updated".to_string()
+            "scan cancelled: not added to the scan history".to_string()
         } else {
-            match snapshot::save(&tree, &file) {
-                Ok(()) => "baseline saved for the next 'Grew' comparison".to_string(),
-                Err(e) => format!("baseline not saved: {e}"),
+            match snapshot_history::save(&tree) {
+                Ok(_) => "saved in the scan history (Grew since last scan, Compare scans)".to_string(),
+                Err(e) => format!("scan history not saved: {e}"),
             }
         };
         let mut l = Self {

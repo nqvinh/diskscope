@@ -4,15 +4,21 @@
 use crate::model::Tree;
 use std::collections::HashMap;
 use std::io::{BufRead, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const MIN_DIR: u64 = 1 << 20;
-const HEADER: &str = "#diskscope-snapshot v1";
+const HEADER_V1: &str = "#diskscope-snapshot v1";
+/// v2 adds the folder's label: `size \t label \t relative path`.
+const HEADER: &str = "#diskscope-snapshot v2";
 
 pub struct Snapshot {
     pub taken_at: u32,
+    /// The scanned root as written in the file ("" for "This PC").
+    pub root: String,
     /// Lowercase relative folder path -> size in bytes.
     pub sizes: HashMap<String, u64>,
+    /// Lowercase relative path -> (path as written, label as u8; 0 for v1 files).
+    pub meta: HashMap<String, (String, u8)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -22,16 +28,13 @@ pub struct Growth {
     pub new: u64,
 }
 
-pub fn snapshot_file(root: &Path) -> PathBuf {
+/// File-name key of a scanned root: `C:\Users` -> `c_users`, "This PC" -> `all-drives`.
+pub fn root_key(root: &Path) -> String {
     if root.as_os_str().is_empty() {
-        return crate::sys::data_dir().join("snapshots").join("all-drives.tsv"); // "This PC" scans
+        return "all-drives".into();
     }
-    let key: String = root
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
-        .collect();
-    crate::sys::data_dir().join("snapshots").join(format!("{}.tsv", key.trim_matches('_')))
+    let key: String = root.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }).collect();
+    key.trim_matches('_').to_string()
 }
 
 /// Folders of 1 MiB+ with their relative paths (the root is "").
@@ -59,7 +62,7 @@ pub fn save(tree: &Tree, file: &Path) -> std::io::Result<()> {
     let mut w = BufWriter::new(std::fs::File::create(&tmp)?);
     writeln!(w, "{HEADER}\t{}\t{}", tree.scanned_at, tree.root_path.display())?;
     for (i, rel) in big_dirs(tree) {
-        writeln!(w, "{}\t{}", tree.node(i).size, rel)?;
+        writeln!(w, "{}\t{}\t{}", tree.node(i).size, tree.node(i).label, rel)?;
     }
     w.flush()?;
     drop(w);
@@ -71,19 +74,33 @@ pub fn load(file: &Path) -> Option<Snapshot> {
     let mut lines = std::io::BufReader::new(f).lines();
     let head = lines.next()?.ok()?;
     let mut h = head.split('\t');
-    if h.next()? != HEADER {
-        return None;
-    }
+    let v2 = match h.next()? {
+        HEADER => true,
+        HEADER_V1 => false,
+        _ => return None,
+    };
     let taken_at = h.next()?.parse().ok()?;
-    let mut sizes = HashMap::new();
+    let root = h.next().unwrap_or("").to_string();
+    let (mut sizes, mut meta) = (HashMap::new(), HashMap::new());
     for line in lines.map_while(Result::ok) {
-        if let Some((size, rel)) = line.split_once('\t') {
-            if let Ok(s) = size.parse() {
-                sizes.insert(rel.to_lowercase(), s);
-            }
-        }
+        let mut f = line.splitn(if v2 { 3 } else { 2 }, '\t');
+        let (Some(size), label) = (f.next().and_then(|s| s.parse::<u64>().ok()), if v2 { f.next().and_then(|l| l.parse::<u8>().ok()) } else { Some(0) }) else { continue };
+        let (Some(label), Some(rel)) = (label, f.next()) else { continue };
+        let key = rel.to_lowercase();
+        sizes.insert(key.clone(), size);
+        meta.insert(key, (rel.to_string(), label));
     }
-    Some(Snapshot { taken_at, sizes })
+    Some(Snapshot { taken_at, root, sizes, meta })
+}
+
+/// The scan time and root total written in a snapshot file, without reading the whole file.
+pub fn peek(file: &Path) -> Option<(u32, u64)> {
+    let f = std::fs::File::open(file).ok()?;
+    let mut lines = std::io::BufReader::new(f).lines();
+    let head = lines.next()?.ok()?;
+    let taken_at = head.split('\t').nth(1)?.parse().ok()?;
+    let first = lines.next()?.ok()?;
+    Some((taken_at, first.split('\t').next()?.parse().ok()?))
 }
 
 /// Folders that grew by at least `min_delta` since `prev`, using the same frontier rule as the
@@ -120,6 +137,10 @@ fn snapshot_round_trip_and_growth() {
     let file = std::env::temp_dir().join(format!("diskscope-test-{}.tsv", std::process::id()));
     save(&before, &file).unwrap();
     let snap = load(&file).unwrap();
+    assert_eq!(peek(&file).map(|p| p.1), Some(5 * mb), "root total is the first line");
+    std::fs::write(&file, "#diskscope-snapshot v1\t5\tQ:\\\n7\t\n3\tOld\\Dir\n").unwrap();
+    let v1 = load(&file).expect("v1 files still load");
+    assert_eq!((v1.sizes.get("old\\dir"), v1.meta.get("old\\dir").map(|m| m.0.as_str())), (Some(&3), Some("Old\\Dir")));
     std::fs::remove_file(&file).ok();
     assert_eq!(snap.sizes.get("a"), Some(&(2 * mb)));
     let after = build("Q:\\", &[("a\\x.bin", 2 * mb, 0), ("b\\y.bin", 3 * mb, 0), ("b\\c\\z.bin", 40 * mb, 0)]);

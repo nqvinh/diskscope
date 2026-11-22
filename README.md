@@ -40,6 +40,7 @@ diskscope shows where your disk space went: a folder tree, an extension table an
 - **VM disks tab.** Finds WSL distro disks (`ext4.vhdx`), Docker Desktop's disks, Hyper-V, VirtualBox and VMware disks (`.vhdx .vhd .avhdx .vdi .vmdk`) in the scan and in their usual folders, with size and owner, and shows copyable "How to reclaim" steps for the selected disk (`wsl --shutdown`, `wsl --manage <distro> --set-sparse true`, `Optimize-VHD` or diskpart `compact vdisk`, `docker system df` and prune first). Hints only: nothing runs, no admin needed, and these files can never be deleted from diskscope.
   ![VM disks tab with reclaim steps](docs/images/vm-disks.png)
 - **Fits any text size:** the extension list narrows as the text grows (or hide it with one click), the tree scrolls sideways, and right-clicking a tree header lets you choose which columns to show (remembered).
+- **Scan history and Compare scans.** Every finished scan is kept as a compact snapshot (folders of 1 MiB or more; up to 20 per drive or folder, 200 MiB in total, one year) in `%LOCALAPPDATA%\diskscope\snapshots`. Pick any two scans of the same drive or folder to see which folders **grew, shrank, appeared or disappeared**, sortable and with labels. A folder is left out when one of its sub-folders explains 90 % of its change, so the list points at where the change really is.
 - **Excludes and "never suggest".** In Settings, list names (`node_modules`, `*.iso`) or full paths (`D:\VMs`) to **skip** during scans (not scanned, not counted) or to **hide** (still counted in folder sizes, but never shown in the tree, lists or suggestions). Right-click any item for "Exclude from future scans", or a suggestion for "Never suggest this". Both lists are saved, and removing an entry in Settings undoes it.
 - **Sortable everywhere:** tree, suggestions, Review, History and every list. Click a header to sort, click again to flip; the default is size, largest first. The tree sorts one folder level at a time, so it stays instant on millions of items.
 - **Last-touch dates:** Last modified for every file and folder (a folder shows the newest change inside it) and Last accessed (the tooltip notes that Windows may not update access times), shown as dates with "N days ago" in the tooltip.
@@ -133,6 +134,8 @@ Get `diskscope.exe` from the [latest release](https://github.com/nqvinh/diskscop
 
 ![Settings: excluded names and paths (skip or hide) and the never-suggest list](docs/images/excludes.png)
 
+![Compare scans: what grew or appeared between two scans of the same folder](docs/images/compare.png)
+
 ![Size per automatic label, with the biggest items of the selected label](docs/images/labels.png)
 
 Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `files`, `history`, ...) opens a tab, `--ext .mp4,.mkv` lists the files of those extensions, and `--settings <file>` uses another settings file. `diskscope.exe "This PC"` scans all local NTFS drives into one tree; the read-only CLI takes several drives too: `diskscope-cli C: D: --top 20` or `diskscope-cli all`.
@@ -185,7 +188,8 @@ cargo test --release
 $env:DISKSCOPE_PROFILE = 1; .\target\release\diskscope-cli.exe C: --top 1   # phase timings on stderr
 ```
 
-79 tests cover:
+81 tests cover:
+- scan history (migration of the old single snapshot, newest first, per-root cap, age prune; v1 and v2 snapshot files) and the compare diff (grew / shrank / new / gone at the right folder level, minimum change)
 - excludes: name and path patterns, skip vs hide on a real folder (skipped items are not counted, hidden ones are counted but never listed), never-suggest filtering, and older settings files loading with empty lists
 - the MFT record parser (on synthetic FILE records), the read plan for `$MFT` chunks, and the tree builder (the parallel build matches the serial one node for node)
 - several drives in one tree (paths, totals, extension ids)

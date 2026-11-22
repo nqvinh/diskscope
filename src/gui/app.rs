@@ -38,6 +38,7 @@ enum Tab {
     Files,
     Review,
     History,
+    Compare,
 }
 
 pub struct App {
@@ -53,6 +54,7 @@ pub struct App {
     review: ReviewList,
     review_sel: HashSet<PathBuf>,
     history: HistoryView,
+    compare: super::compare_view::CompareView,
     labels: LabelsView,
     files: FilesView,
     tools: ToolsView,
@@ -93,6 +95,7 @@ impl App {
             review: ReviewList::default(),
             review_sel: HashSet::new(),
             history: HistoryView::default(),
+            compare: Default::default(),
             labels: LabelsView::default(),
             files: FilesView::default(),
             tools: ToolsView::default(),
@@ -142,6 +145,7 @@ impl App {
                 (Tab::Recent, "Recent".into()),
                 (Tab::LeastUsed, "Least used".into()),
                 (Tab::Grew, "Grew since last scan".into()),
+                (Tab::Compare, "Compare scans".into()),
                 (Tab::Candidates, format!("Candidates ({})", data.candidates.len())),
                 (Tab::Labels, "By label".into()),
                 (Tab::Tools, "Dev tools".into()),
@@ -255,6 +259,7 @@ impl eframe::App for App {
                     Tab::Files => self.files.ui(ui, &data, &self.ext_sel, &self.review, &mut acts),
                     Tab::Review => review_view::ui(ui, &self.review, &mut self.review_sel, &targets, &mut acts),
                     Tab::History => self.history.ui(ui, &mut acts),
+                    Tab::Compare => self.compare.ui(ui, &data, &mut acts),
                 }
             });
             self.delete_keys(ui, &data, &mut acts);

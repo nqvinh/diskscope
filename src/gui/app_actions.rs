@@ -68,6 +68,7 @@ impl App {
                 "files" => Tab::Files,
                 "review" => Tab::Review,
                 "history" => Tab::History,
+                "compare" => Tab::Compare,
                 _ => Tab::Tree,
             };
         }
