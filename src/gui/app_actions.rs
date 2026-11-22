@@ -69,6 +69,7 @@ impl App {
                 "review" => Tab::Review,
                 "history" => Tab::History,
                 "compare" => Tab::Compare,
+                "projects" => Tab::Projects,
                 _ => Tab::Tree,
             };
         }

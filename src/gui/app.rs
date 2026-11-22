@@ -39,6 +39,7 @@ enum Tab {
     Review,
     History,
     Compare,
+    Projects,
 }
 
 pub struct App {
@@ -55,6 +56,7 @@ pub struct App {
     review_sel: HashSet<PathBuf>,
     history: HistoryView,
     compare: super::compare_view::CompareView,
+    projects: super::projects_view::ProjectsView,
     labels: LabelsView,
     files: FilesView,
     tools: ToolsView,
@@ -96,6 +98,7 @@ impl App {
             review_sel: HashSet::new(),
             history: HistoryView::default(),
             compare: Default::default(),
+            projects: Default::default(),
             labels: LabelsView::default(),
             files: FilesView::default(),
             tools: ToolsView::default(),
@@ -148,6 +151,7 @@ impl App {
                 (Tab::Compare, "Compare scans".into()),
                 (Tab::Candidates, format!("Candidates ({})", data.candidates.len())),
                 (Tab::Labels, "By label".into()),
+                (Tab::Projects, format!("Projects ({})", data.projects.len())),
                 (Tab::Tools, "Dev tools".into()),
                 (Tab::VmDisks, "VM disks".into()),
                 (Tab::Files, if self.ext_sel.is_empty() { "Files".into() } else { format!("Files ({})", self.ext_sel.iter().map(|&e| data.tree.exts[e as usize].as_str()).collect::<Vec<_>>().join(" ")) }),
@@ -260,6 +264,7 @@ impl eframe::App for App {
                     Tab::Review => review_view::ui(ui, &self.review, &mut self.review_sel, &targets, &mut acts),
                     Tab::History => self.history.ui(ui, &mut acts),
                     Tab::Compare => self.compare.ui(ui, &data, &mut acts),
+                    Tab::Projects => self.projects.ui(ui, &data, &self.review, &mut acts),
                 }
             });
             self.delete_keys(ui, &data, &mut acts);

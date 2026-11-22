@@ -5,6 +5,7 @@ mod app;
 mod dialogs;
 mod ext_table;
 mod compare_view;
+mod projects_view;
 mod files_view;
 mod header;
 mod labels_view;

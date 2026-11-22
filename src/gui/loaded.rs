@@ -24,6 +24,8 @@ pub struct Loaded {
     pub label_totals: Vec<(crate::rules::labels::Label, u64, u64)>,
     /// File node ids per extension, for the Files tab.
     pub ext_index: crate::views::ext_files::ExtIndex,
+    /// Project roots with their rebuildable folders, for the Projects tab.
+    pub projects: Vec<crate::rules::projects::Project>,
     pub prev_snapshot: Option<Snapshot>,
     pub snapshot_note: String,
     pub ao: AoSessions,
@@ -51,6 +53,7 @@ impl Loaded {
             candidates: Vec::new(),
             label_totals: Vec::new(),
             ext_index: crate::views::ext_files::ExtIndex { by_ext: Vec::new() },
+            projects: Vec::new(),
             prev_snapshot,
             snapshot_note,
             ao,
@@ -63,7 +66,7 @@ impl Loaded {
 
     pub fn refresh(&mut self) {
         let d = Derived::compute(&self.tree, &self.ao, &self.never_suggest);
-        (self.ext_stats, self.palette, self.candidates, self.label_totals, self.ext_index) = (d.ext_stats, d.palette, d.candidates, d.label_totals, d.ext_index);
+        (self.ext_stats, self.palette, self.candidates, self.label_totals, self.ext_index, self.projects) = (d.ext_stats, d.palette, d.candidates, d.label_totals, d.ext_index, d.projects);
         // Marks the final suggestions, so their right-click menu offers "Never suggest this".
         for c in &self.candidates {
             self.tree.node_mut(c.node).flags |= F_CANDIDATE;
@@ -95,6 +98,7 @@ pub struct Derived {
     pub candidates: Vec<Candidate>,
     pub label_totals: Vec<(crate::rules::labels::Label, u64, u64)>,
     pub ext_index: crate::views::ext_files::ExtIndex,
+    pub projects: Vec<crate::rules::projects::Project>,
 }
 
 impl Derived {
@@ -102,16 +106,19 @@ impl Derived {
         use crate::scan::profile::time;
         let t = std::time::Instant::now();
         // Four independent read-only passes over the tree, run side by side.
-        let ((ext_stats, mut candidates), (label_totals, ext_index)) = rayon::join(
-            || rayon::join(|| time("derive: extension table", || ext_stats(tree, 0)), || time("derive: suggestions", || detect(tree, ao, crate::fmt::now()))),
-            || rayon::join(|| time("derive: label totals", || super::labels_view::label_totals(tree)), || time("derive: extension file index", || crate::views::ext_files::build_index(tree))),
+        let (((ext_stats, mut candidates), (label_totals, ext_index)), projects) = rayon::join(
+            || rayon::join(
+                || rayon::join(|| time("derive: extension table", || ext_stats(tree, 0)), || time("derive: suggestions", || detect(tree, ao, crate::fmt::now()))),
+                || rayon::join(|| time("derive: label totals", || super::labels_view::label_totals(tree)), || time("derive: extension file index", || crate::views::ext_files::build_index(tree))),
+            ),
+            || time("derive: projects", || crate::rules::projects::detect(tree)),
         );
         let palette = palette(tree, &ext_stats);
         if !never_suggest.is_empty() {
             candidates.retain(|c| !never_suggested(never_suggest, &tree.path(c.node)));
         }
         crate::scan::profile::report("derive: total (parallel)", t.elapsed());
-        Self { ext_stats, palette, candidates, label_totals, ext_index }
+        Self { ext_stats, palette, candidates, label_totals, ext_index, projects }
     }
 }
 

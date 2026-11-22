@@ -5,6 +5,7 @@
 use super::{entry::RawEntry, extensions::ext_of};
 use crate::model::{Node, F_DIR, F_GROUP, F_HIDDEN, F_REPARSE};
 use crate::rules::excludes::{ExcludeMode, ScanFilter};
+use crate::rules::projects::is_project_marker;
 use crate::rules::labels::{self, Label};
 use std::collections::HashMap;
 use std::path::Path;
@@ -75,7 +76,8 @@ fn apply_excludes(batch: Vec<RawEntry>, filter: Option<&ScanFilter>, dir: Option
 pub fn prepare(ctx: &Ctx, batch: Vec<RawEntry>, filter: Option<&ScanFilter>, dir: Option<&Path>) -> Prepared {
     let (batch, hidden) = apply_excludes(batch, filter, dir);
     let exts: Vec<Option<String>> = batch.iter().map(|e| if e.is_dir() { None } else { ext_of(&e.name) }).collect();
-    let small = |i: usize| is_small(&batch[i]) && !hidden[i];
+    // Project markers (package.json, Cargo.toml, .git, ...) always stay visible on their own.
+    let small = |i: usize| is_small(&batch[i]) && !hidden[i] && !is_project_marker(&batch[i].name);
     let group = (0..batch.len()).filter(|&i| small(i)).count() > GROUP_MIN_COUNT;
     let mut per_ext: HashMap<&Option<String>, usize> = HashMap::new();
     if group {
