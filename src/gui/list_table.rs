@@ -22,8 +22,16 @@ pub struct ListRow {
     pub note: String,
 }
 
+/// Draws a row's primary action in the `extra` column ("Clean with pnpm"); false = show `extra`.
+pub type RowAction<'a> = &'a dyn Fn(&ListRow, &mut Ui, &mut Vec<Act>) -> bool;
+
 /// `heads` = [amount, extra, note] column titles.
 pub fn ui(ui: &mut Ui, id: &str, data: &Loaded, rows: &[ListRow], heads: [&str; 3], review: &ReviewList, acts: &mut Vec<Act>) {
+    ui_with(ui, id, data, rows, heads, review, acts, &|_, _, _| false);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn ui_with(ui: &mut Ui, id: &str, data: &Loaded, rows: &[ListRow], heads: [&str; 3], review: &ReviewList, acts: &mut Vec<Act>, action: RowAction) {
     if rows.is_empty() {
         ui.label("Nothing here yet. Try a longer time span, another folder or a different filter.");
         return;
@@ -71,7 +79,7 @@ pub fn ui(ui: &mut Ui, id: &str, data: &Loaded, rows: &[ListRow], heads: [&str; 
                 row.col(|ui| { ui.label(&path).on_hover_text(&path); });
                 row.col(|ui| date_cell(ui, r.when, ""));
                 row.col(|ui| label_chip(ui, label_of(r)));
-                row.col(|ui| { ui.label(&r.extra); });
+                row.col(|ui| { if !action(r, ui, acts) { ui.label(&r.extra); } });
                 row.col(|ui| { ui.label(&r.note).on_hover_text(&r.note); });
                 let resp = row.response();
                 if resp.clicked() {

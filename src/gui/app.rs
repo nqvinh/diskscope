@@ -13,7 +13,9 @@ use super::labels_view::LabelsView;
 use super::lists::{candidates_ui, GrewView, TimeQuery};
 use super::loaded::{Loaded, ScanJob};
 use super::tree_view::TreeView;
+use super::tools_view::ToolsView;
 use super::treemap_view::TreemapView;
+use super::vm_disks_view::VmDisksView;
 use super::{action_bar, ext_table, live_view, review_view};
 use crate::cleanup::review::ReviewList;
 use crate::fmt::size;
@@ -31,6 +33,8 @@ enum Tab {
     Grew,
     Candidates,
     Labels,
+    Tools,
+    VmDisks,
     Files,
     Review,
     History,
@@ -51,6 +55,8 @@ pub struct App {
     history: HistoryView,
     labels: LabelsView,
     files: FilesView,
+    tools: ToolsView,
+    vms: VmDisksView,
     /// Extensions listed in the Files tab.
     ext_sel: Vec<u16>,
     /// Extensions to select once the first scan finishes (`--ext`).
@@ -86,6 +92,8 @@ impl App {
             history: HistoryView::default(),
             labels: LabelsView::default(),
             files: FilesView::default(),
+            tools: ToolsView::default(),
+            vms: VmDisksView::default(),
             ext_sel: Vec::new(),
             pending_ext: ext,
             dialogs: Dialogs::default(),
@@ -129,6 +137,8 @@ impl App {
                 (Tab::Grew, "Grew since last scan".into()),
                 (Tab::Candidates, format!("Candidates ({})", data.candidates.len())),
                 (Tab::Labels, "By label".into()),
+                (Tab::Tools, "Dev tools".into()),
+                (Tab::VmDisks, "VM disks".into()),
                 (Tab::Files, if self.ext_sel.is_empty() { "Files".into() } else { format!("Files ({})", self.ext_sel.iter().map(|&e| data.tree.exts[e as usize].as_str()).collect::<Vec<_>>().join(" ")) }),
                 (Tab::Review, String::new()),
                 (Tab::History, "History".into()),
@@ -215,7 +225,12 @@ impl eframe::App for App {
                     Tab::Recent => self.recent.ui_recent(ui, &data, &self.review, &mut acts),
                     Tab::LeastUsed => self.least.ui_least_used(ui, &data, &self.review, &mut acts),
                     Tab::Grew => self.grew.ui(ui, &data, &self.review, &mut acts),
-                    Tab::Candidates => candidates_ui(ui, &data, &self.review, &mut acts),
+                    Tab::Candidates => {
+                        self.tools.start_probe();
+                        candidates_ui(ui, &data, &self.review, &mut acts, &|r, ui, a| self.tools.row_button(ui, &data, r.node, a));
+                    }
+                    Tab::Tools => self.tools.ui(ui, &data, &mut acts),
+                    Tab::VmDisks => self.vms.ui(ui, &data, &mut acts),
                     Tab::Labels => self.labels.ui(ui, &data, &self.review, &mut acts),
                     Tab::Files => self.files.ui(ui, &data, &self.ext_sel, &self.review, &mut acts),
                     Tab::Review => review_view::ui(ui, &self.review, &mut self.review_sel, &targets, &mut acts),
@@ -239,6 +254,10 @@ impl eframe::App for App {
         }
         if let Some(out) = self.dialogs.ui(ui.ctx(), self.header.recycle_bytes()) {
             self.after_cleanup(out);
+        }
+        if let Some(msg) = self.tools.dialog_ui(ui.ctx()) {
+            self.history.invalidate();
+            self.toast(msg);
         }
         self.apply(acts);
         if let Some(p) = start {

@@ -24,7 +24,7 @@ impl Default for HistoryView {
     }
 }
 
-const MODES: [&str; 3] = ["all", "recycle", "permanent"];
+const MODES: [&str; 4] = ["all", "recycle", "permanent", "tool"];
 
 impl HistoryView {
     /// Re-read the file the next time the tab is shown (after a delete).

@@ -63,6 +63,8 @@ impl App {
                 "grew" => Tab::Grew,
                 "candidates" => Tab::Candidates,
                 "labels" | "by-label" => Tab::Labels,
+                "tools" | "dev-tools" => Tab::Tools,
+                "vm-disks" | "vms" => Tab::VmDisks,
                 "files" => Tab::Files,
                 "review" => Tab::Review,
                 "history" => Tab::History,
@@ -131,6 +133,7 @@ impl App {
                     }
                     self.tab = Tab::Files;
                 }
+                Act::ToolClean { tool, estimate } => self.tools.request(tool, estimate),
                 Act::Delete { shift, targets } => match delete_request(shift, targets) {
                     Ok(req) => self.dialogs.open(req),
                     Err(e) => self.toast(e),
@@ -147,7 +150,7 @@ impl App {
     /// Del / Shift+Del on the current selection (Tree: the selected item; Review: selected rows).
     /// Ignored while typing in a text box or while a dialog is open.
     pub(super) fn delete_keys(&mut self, ui: &Ui, data: &Loaded, acts: &mut Vec<Act>) {
-        if self.dialogs.is_open() || ui.ctx().memory(|m| m.focused().is_some()) {
+        if self.dialogs.is_open() || self.tools.is_open() || ui.ctx().memory(|m| m.focused().is_some()) {
             return;
         }
         let Some(shift) = ui.input(|i| i.key_pressed(egui::Key::Delete).then_some(i.modifiers.shift)) else { return };

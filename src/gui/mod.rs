@@ -15,9 +15,12 @@ mod lists;
 mod loaded;
 mod review_view;
 mod settings;
+mod tool_dialog;
+mod tools_view;
 mod tree_columns;
 mod tree_view;
 mod treemap_view;
+mod vm_disks_view;
 mod widgets;
 
 use eframe::egui;

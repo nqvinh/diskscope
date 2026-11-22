@@ -21,6 +21,8 @@ pub enum Act {
     Unreview(PathBuf),
     Explorer(PathBuf),
     Toast(String),
+    /// Open the confirm dialog for a tool's own cleanup command ("Clean with pnpm").
+    ToolClean { tool: crate::cleanup::tool_actions::Tool, estimate: Option<u64> },
 }
 
 pub fn rgb(c: [u8; 3]) -> Color32 {

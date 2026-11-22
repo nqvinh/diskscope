@@ -88,6 +88,8 @@ pub fn classify(tree: &Tree, i: u32, ao: &AoSessions, now: u32, inside: bool) ->
         }
         "npm-cache" => r("npm-cache", "npm download cache; 'npm cache clean --force' or delete, npm re-downloads", Safe),
         "cache" if pname == "yarn" => r("yarn-cache", "Yarn download cache; 'yarn cache clean' or delete, Yarn re-downloads", Safe),
+        "cache" if pname == "pip" => r("pip-cache", "pip download/wheel cache; 'pip cache purge' or delete, pip re-downloads", Safe),
+        "packages" if pname == ".nuget" => r("nuget-packages", "NuGet global packages; 'dotnet nuget locals all --clear', the next restore re-downloads", Likely),
         "target" if has_child(tree, p, "Cargo.toml") => r("rust-target", "Rust build output; 'cargo build' recreates it", Safe),
         "library" if is_unity_project(tree, p) => r("unity-library", "Unity Library cache; Unity re-imports everything on the next open (slow)", Likely),
         "temp" | "obj" | "logs" if is_unity_project(tree, p) => r("unity-temp", "Unity Temp/obj/Logs; recreated when Unity runs", Safe),

@@ -139,7 +139,8 @@ impl GrewView {
     }
 }
 
-pub fn candidates_ui(ui: &mut Ui, data: &Loaded, review: &ReviewList, acts: &mut Vec<Act>) {
+/// `action` draws "Clean with <tool>" on rows whose folder is a tool's own cache.
+pub fn candidates_ui(ui: &mut Ui, data: &Loaded, review: &ReviewList, acts: &mut Vec<Act>, action: list_table::RowAction) {
     let total = crate::rules::candidates::total_without_overlap(&data.tree, &data.candidates);
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{} suggestions, {} in total", data.candidates.len(), size(total))).strong());
@@ -168,7 +169,7 @@ pub fn candidates_ui(ui: &mut Ui, data: &Loaded, review: &ReviewList, acts: &mut
             note: format!("{}: {}", c.kind, c.reason),
         })
         .collect();
-    list_table::ui(ui, "candidates", data, &rows, ["Size", "Confidence", "Kind: why"], review, acts);
+    list_table::ui_with(ui, "candidates", data, &rows, ["Size", "Confidence / action", "Kind: why"], review, acts, action);
 }
 
 fn export(data: &Loaded, acts: &mut Vec<Act>) {

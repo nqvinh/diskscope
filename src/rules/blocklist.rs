@@ -34,6 +34,9 @@ pub fn blocked_reason(path: &Path) -> Option<&'static str> {
     if parts.iter().any(|s| *s == "..") {
         return Some("relative path segments");
     }
+    if crate::rules::vm_disks::is_vm_disk(path) {
+        return Some("virtual machine / container disk: deleting it destroys the whole VM (see the VM disks tab to reclaim space)");
+    }
     let top = parts[1];
     if top == "windows" || system_root_contains(&p) {
         return Some("Windows system folder");

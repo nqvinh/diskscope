@@ -9,3 +9,7 @@ pub mod fast_delete;
 pub mod history;
 pub mod request;
 pub mod review;
+pub mod tool_actions;
+pub mod tool_parse;
+pub mod tool_probe;
+pub mod tool_runner;
