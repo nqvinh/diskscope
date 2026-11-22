@@ -58,7 +58,7 @@ impl Header {
             ui.separator();
             ui.label("Scan:");
             egui::ComboBox::from_id_salt("drive").selected_text("Drive").width(70.0).show_ui(ui, |ui| {
-                if self.drives.len() > 1 && ui.selectable_label(false, "All drives at once (This PC)").clicked() {
+                if self.drives.len() > 1 && ui.selectable_label(false, "All drives (This PC)").clicked() {
                     self.path = crate::model::graft::ALL_DRIVES.to_string();
                 }
                 for d in &self.drives {

@@ -20,8 +20,9 @@ diskscope shows where your disk space went: a folder tree, an extension table an
 
 - **Native Rust app: a single 8 MB exe.** No runtime, no installer, memory-safe code.
 - **Fast NTFS scan (run as administrator).**
-  - It reads the Master File Table directly, like WizTree: a 3.0M-item C: in **10.7 s** and a 6.7M-item D: in **9.5 s** on the test PC.
+  - It reads the Master File Table directly, like WizTree, with four reads in flight and the folder tree built in parallel: a 2.7M-item C: in **2.5 s** and a 4.5M-item D: in **3.7 s** on the test PC (v0.3.2, warm).
   - Results are within **0.4-0.6 %** of the volume's used space.
+- **Scan all drives** into one tree ("This PC"), one drive after another. Only local NTFS drives are included, so cloud drives such as Google Drive are not walked over the network.
 - **True space used.** Hard links (pnpm, conda) are counted once, so the numbers add up to what the disk really holds.
 - **Lower memory** than the tool it was compared with (see the table below; measured numbers only).
 - **Live cleanup suggestions while scanning.**
@@ -42,7 +43,7 @@ diskscope shows where your disk space went: a folder tree, an extension table an
 - **Sortable everywhere:** tree, suggestions, Review, History and every list. Click a header to sort, click again to flip; the default is size, largest first. The tree sorts one folder level at a time, so it stays instant on millions of items.
 - **Last-touch dates:** Last modified for every file and folder (a folder shows the newest change inside it) and Last accessed (the tooltip notes that Windows may not update access times), shown as dates with "N days ago" in the tooltip.
 - **Fast, safe deletes.**
-  - Permanent delete runs in parallel (32 threads); read-only files, long paths and links are handled, and links are removed, never followed.
+  - Permanent delete runs in parallel (32 threads), and several selected items are deleted at the same time on that one pool, also across drives; read-only files, long paths and links are handled, and links are removed, never followed.
   - The Recycle Bin is a single Windows operation for the whole selection.
   - Before running, diskscope warns if an item is bigger than that drive's Recycle Bin.
   - Progress shows items, files, GB and an ETA, with Cancel; the window stays responsive.
@@ -66,6 +67,20 @@ Everything below was measured on one Windows 11 PC with an NVMe SSD (C:) on 2026
 
 Both runs were measured by the same script, which polled each process's OS-reported peak working set. WizTree's wall time includes its CSV export, so treat the time column as indicative and the memory column as the main comparison.
 
+### v0.3.2 vs v0.3.1: fast NTFS scan, same PC, elevated, warm (3 runs each, after one warm-up)
+
+| Drive | v0.3.1 | v0.3.2 | Peak private memory |
+|---|---|---|---|
+| C: NVMe, 2.7M items | 4.32-4.46 s | **2.44-2.54 s** | 500 MB -> 507 MB |
+| D: NVMe, 4.5M items | 6.20-6.45 s | **3.66-3.79 s** | 787 MB -> 800 MB |
+| E: SATA SSD, 1.2M items, 3.9 GB $MFT | 10.8-11.1 s | **9.97-9.98 s** | 302 MB -> 311 MB |
+
+Where the time went (from the built-in phase timings, `DISKSCOPE_PROFILE=1`): reading `$MFT` dominates. Four reads in flight cut reading + parsing on C: from about 3.9 s to 1.9-2.5 s, and building the folder tree in parallel cut it from 1.24 s to 0.67 s (C:) and 2.2 s to 0.56 s (D:). E: is limited by the SATA disk's bandwidth (its `$MFT` alone is 3.9 GB), so it gains little.
+
+Without admin rights, the folder walker now prepares each folder (labels, grouping) outside its shared lock: time holding the lock dropped 3.6x. A warm 265k-item folder went from 0.39-0.68 s to 0.29-0.53 s; a warm C: walk (2.9M items) stays at about 10-12 s, limited by Windows' folder listing itself.
+
+Scanning C:, D: and E: side by side was measured too: 15.7-16.1 s instead of 16.5-17.6 s one after another, but with 1.34 GB instead of 0.93 GB peak memory. That is not worth it, so "Scan all drives" scans them in turn.
+
 ### Delete speed (generated junk tree, before vs after v0.3.0)
 
 | Operation | v0.2.0 | v0.3.0 |
@@ -73,9 +88,17 @@ Both runs were measured by the same script, which polled each process's OS-repor
 | Permanent delete: 200,000 small files in 10,000 folders + 3 × 200 MB | 20.2 s | 8.7 s (10.8 s through the full confirm → execute path) |
 | Recycle Bin: 500 selected folders with 10,000 files | 11.4 s | 3.6 s |
 
-Measured with `cargo test --release --test delete_bench -- --ignored --nocapture`, which only works under its own generated folder in `D:\tmp`. Run-to-run variation was about ±2 s for the permanent case.
+v0.3.2 deletes several selected items at the same time (permanent delete):
 
-### diskscope on its own
+| Selection | one item after another | v0.3.2 |
+|---|---|---|
+| 500 folders, 20 files each | 1.23 s | **0.31 s** |
+| 2,000 folders, 5 files each | 3.63 s | **0.68 s** |
+| 60 folders spread over D: (NVMe) and E: (SATA SSD), 24,000 files | 0.54-0.57 s | **0.32-0.36 s** |
+
+Measured with `cargo test --release --test delete_bench -- --ignored --nocapture`, which only works under its own generated folders (`D:\tmp`, plus a capped `E:\tmp` tree for the cross-drive row, opt-in). The Recycle Bin rows are opt-in too, so a default run puts nothing in the bin. The machine was busy with other work, so single-tree timings varied between runs (the 200,000-file tree took 9.2-11.2 s in v0.3.2 runs).
+
+### diskscope on its own (v0.1-v0.3.1 measurements)
 
 | Target | Fast NTFS (MFT) scan | Folder walker (no admin) | Accuracy |
 |---|---|---|---|
@@ -109,7 +132,7 @@ Get `diskscope.exe` from the [latest release](https://github.com/nqvinh/diskscop
 
 ![Size per automatic label, with the biggest items of the selected label](docs/images/labels.png)
 
-Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `files`, `history`, ...) opens a tab, `--ext .mp4,.mkv` lists the files of those extensions, and `--settings <file>` uses another settings file.
+Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `files`, `history`, ...) opens a tab, `--ext .mp4,.mkv` lists the files of those extensions, and `--settings <file>` uses another settings file. `diskscope.exe "This PC"` scans all local NTFS drives into one tree; the read-only CLI takes several drives too: `diskscope-cli C: D: --top 20` or `diskscope-cli all`.
 
 ## Run as administrator for the fast scan
 
@@ -136,8 +159,8 @@ Reading the MFT needs administrator rights. Without them, diskscope uses its par
 **Fast path (NTFS, elevated):**
 1. diskscope opens `\\.\C:` for reading and asks for the volume layout (`FSCTL_GET_NTFS_VOLUME_DATA`, a read-only query).
 2. It maps `$MFT`'s own data runs, including attribute-list fragments on a heavily fragmented MFT.
-3. It reads `$MFT` sequentially in 8 MiB chunks while rayon parses the FILE records in parallel. For each record it applies the update-sequence fixups, merges base and extension records, and reads the `$STANDARD_INFORMATION` times, the Win32 name (skipping DOS short names) and the unnamed `$DATA` size.
-4. It builds the folder tree from the parent references.
+3. It reads `$MFT` in 8 MiB chunks through four independent read-only handles (four reads in flight) while rayon parses the FILE records in parallel. For each record it applies the update-sequence fixups, merges base and extension records, and reads the `$STANDARD_INFORMATION` times, the Win32 name (skipping DOS short names) and the unnamed `$DATA` size.
+4. It builds the folder tree from the parent references, breadth-first: slices of folders are prepared in parallel and added in a fixed order, so the tree is identical to a serial build.
 
 **Fallback:** a 32-thread directory walker that never follows junctions, symlinks or mount points.
 
@@ -156,10 +179,13 @@ cargo build --release        # Rust 1.95 is pinned in rust-toolchain.toml
 
 ```powershell
 cargo test --release
+$env:DISKSCOPE_PROFILE = 1; .\target\release\diskscope-cli.exe C: --top 1   # phase timings on stderr
 ```
 
-71 tests cover:
-- the MFT record parser (on synthetic FILE records) and the tree builder
+75 tests cover:
+- the MFT record parser (on synthetic FILE records), the read plan for `$MFT` chunks, and the tree builder (the parallel build matches the serial one node for node)
+- several drives in one tree (paths, totals, extension ids)
+- deleting many selected items in parallel (only the listed items go)
 - aggregation, the treemap layout and the blocklist
 - suggestion rules and ranking
 - the confirmation gate, Del / Shift+Del routing, and deleting only the listed items

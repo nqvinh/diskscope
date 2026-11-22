@@ -38,8 +38,8 @@ pub fn ui(ui: &mut Ui, drives: &[Drive], elevated: bool) -> Option<PathBuf> {
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         if drives.len() > 1 {
-            let all = egui::Button::new(RichText::new("Scan all drives at once").size(15.0).strong()).min_size(Vec2::new(220.0, 32.0));
-            if ui.add(all).on_hover_text("Every local NTFS drive is scanned at the same time and shown in one tree (\"This PC\"). Cloud drives such as Google Drive are left out.").clicked() {
+            let all = egui::Button::new(RichText::new("Scan all drives").size(15.0).strong()).min_size(Vec2::new(200.0, 32.0));
+            if ui.add(all).on_hover_text("Every local NTFS drive, one after another, shown in one tree (\"This PC\"). Cloud drives such as Google Drive are left out.").clicked() {
                 pick = Some(PathBuf::from(crate::model::graft::ALL_DRIVES));
             }
         }

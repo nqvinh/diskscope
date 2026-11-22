@@ -55,26 +55,22 @@ pub fn scan_with(root: &Path, progress: &Progress, method: Method) -> Result<Tre
     Ok(t)
 }
 
-/// Scans several roots (drives) into one tree under a virtual "This PC" root. Each root runs its
-/// own pipeline on its own thread (DISKSCOPE_DRIVES_PAR=0: one after another, for comparisons);
-/// progress, cancel and live suggestions are shared. One root = a normal scan.
+/// Scans several roots (drives) into one tree under a virtual "This PC" root, one drive after
+/// another (each drive's scan is already parallel inside). Measured side by side on C:+D:+E:, it
+/// was only 4-8 % faster for +44 % peak memory, so drives run in turn and each one's working
+/// data is freed before the next. Progress, cancel and live suggestions are shared.
 pub fn scan_many(roots: &[PathBuf], progress: &Progress, method: Method) -> Result<Tree, String> {
     if roots.len() == 1 {
         return scan_with(&roots[0], progress, method);
     }
     let start = std::time::Instant::now();
-    let one = |r: &PathBuf| scan_with(r, progress, method);
-    let trees: Vec<Result<Tree, String>> = if profile::knob("DISKSCOPE_DRIVES_PAR", 1) != 0 {
-        std::thread::scope(|s| {
-            let hs: Vec<_> = roots.iter().map(|r| s.spawn(move || one(r))).collect();
-            hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("scan thread panicked".into()))).collect()
-        })
-    } else {
-        roots.iter().map(one).collect()
-    };
     let mut all = Tree::multi_root();
-    for t in trees.into_iter().rev() {
-        all.graft(t?); // reversed: the first root ends up first among the drive nodes
+    for r in roots.iter().rev() {
+        // Reversed: the last graft is listed first, so the first root ends up first.
+        all.graft(scan_with(r, progress, method)?);
+        if progress.cancel.load(Relaxed) {
+            break;
+        }
     }
     all.scanned_at = crate::fmt::now();
     all.elapsed_ms = start.elapsed().as_millis() as u64;

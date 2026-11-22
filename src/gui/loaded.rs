@@ -96,7 +96,7 @@ impl Derived {
     }
 }
 
-/// "This PC" means every local NTFS drive (scanned side by side); anything else is one path.
+/// "This PC" means every local NTFS drive (one tree); anything else is one path.
 pub fn roots_of(path: &Path) -> Vec<PathBuf> {
     if is_all_drives(path) {
         crate::sys::all_drive_roots()

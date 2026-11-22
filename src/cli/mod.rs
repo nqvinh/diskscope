@@ -9,7 +9,7 @@ pub const HELP: &str = "diskscope - disk usage report (read-only)
 
 USAGE:
   diskscope scan <path> [options]       scan a drive (C:) or a folder and print a report
-  diskscope scan C: D: ... | all        scan several drives at the same time (one tree;
+  diskscope scan C: D: ... | all        scan several drives into one tree (one after another;
                                          all = every local NTFS drive)
   diskscope [path]                       open the window (and scan <path> if given)
 
@@ -31,7 +31,7 @@ The CLI never deletes anything. Cleanup only happens in the window, after review
 explicit confirmation.";
 
 pub struct Options {
-    /// One path, or several drives scanned side by side into one tree.
+    /// One path, or several drives scanned into one tree.
     pub paths: Vec<PathBuf>,
     pub json: bool,
     pub top: usize,
