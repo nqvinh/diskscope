@@ -34,6 +34,10 @@ diskscope shows where your disk space went: a folder tree, an extension table an
   - Labels only describe content. They never select anything, and **System** items are never suggested for deletion.
 - **Friendly from the first screen.** Big drive cards show used/free space with a Scan button. Settings (gear icon) cover text size 12-24 pt (scales the whole window), System/Light/Dark theme, accent colour and compact/comfortable rows; changes apply live and are saved in `%LOCALAPPDATA%\diskscope\settings.json`.
 - **Extension drill-down.** Click an extension, or a group such as Video or Images, to list every file of that kind with path, size, dates and label. Ctrl+click adds more extensions. You can filter by name or path and by minimum size, sort, export to CSV, open the folder, or send rows to Review. It stays fast on millions of files thanks to a per-extension index of node ids.
+- **Clean with the tool's own command (Dev tools tab, and "Clean with pnpm" on matching suggestions).** For pnpm, npm, Yarn, NuGet, pip and Docker's build cache, diskscope offers `pnpm store prune`, `npm cache clean --force`, `yarn cache clean`, `dotnet nuget locals all --clear`, `pip cache purge` or `docker builder prune -f` instead of deleting the folder. It only appears when the tool is installed and the folder is the cache that tool itself reports (asked read-only, e.g. `pnpm store path`). A confirm dialog shows the exact command, what it does and the estimated size; the command runs only after you press Run, with live output, a 20-minute limit and Cancel. Free space is measured before and after, and the run is written to History (mode "tool"). Cargo gets a hint (Rust `target` folders stay in Candidates).
+  ![Dev tools tab: installed tools, their caches and the Clean with buttons](docs/images/dev-tools.png)
+- **VM disks tab.** Finds WSL distro disks (`ext4.vhdx`), Docker Desktop's disks, Hyper-V, VirtualBox and VMware disks (`.vhdx .vhd .avhdx .vdi .vmdk`) in the scan and in their usual folders, with size and owner, and shows copyable "How to reclaim" steps for the selected disk (`wsl --shutdown`, `wsl --manage <distro> --set-sparse true`, `Optimize-VHD` or diskpart `compact vdisk`, `docker system df` and prune first). Hints only: nothing runs, no admin needed, and these files can never be deleted from diskscope.
+  ![VM disks tab with reclaim steps](docs/images/vm-disks.png)
 - **Fits any text size:** the extension list narrows as the text grows (or hide it with one click), the tree scrolls sideways, and right-clicking a tree header lets you choose which columns to show (remembered).
 - **Sortable everywhere:** tree, suggestions, Review, History and every list. Click a header to sort, click again to flip; the default is size, largest first. The tree sorts one folder level at a time, so it stays instant on millions of items.
 - **Last-touch dates:** Last modified for every file and folder (a folder shows the newest change inside it) and Last accessed (the tooltip notes that Windows may not update access times), shown as dates with "N days ago" in the tooltip.
@@ -122,6 +126,7 @@ Reading the MFT needs administrator rights. Without them, diskscope uses its par
   - pagefile / hiberfil / swapfile and NTFS metafiles
   - `System Volume Information` and `$Recycle.Bin`
   - user profile roots and their main folders, and the AppData roots
+  - virtual machine / container disks (`.vhdx .vhd .avhdx .vdi .vmdk`): deleting one destroys the whole VM
 - **Skipped and reported**: files in use, access-denied items, and items that changed since the scan.
 - **Logged.** Every action goes to `%LOCALAPPDATA%\diskscope` (History plus an action log).
 - **Read-only scanning.** The volume is opened with read access only. The CLI has no delete command at all.
@@ -153,7 +158,7 @@ cargo build --release        # Rust 1.95 is pinned in rust-toolchain.toml
 cargo test --release
 ```
 
-56 tests cover:
+71 tests cover:
 - the MFT record parser (on synthetic FILE records) and the tree builder
 - aggregation, the treemap layout and the blocklist
 - suggestion rules and ranking
@@ -162,6 +167,8 @@ cargo test --release
 - history append and the 90-day prune
 - the extension index (totals match the table, union, filter, sort), parallel delete (read-only files, long paths, a junction inside the tree never followed, cancel) and settings round-trip
 - sort order (ascending/descending, ties), the folder last-modified roll-up, label rules on sample paths, and System items never being suggested
+- tool cleanup: probe parsing (pnpm, npm, pip, NuGet, Docker), exact commands, matching a suggestion to a tool's own cache only, PATH lookup, and the runner (output, exit codes, cancel, time limit) with `cmd /c` as a stand-in, so no real tool runs
+- VM disks: extensions, owner (WSL / Docker / Hyper-V / VirtualBox / VMware), scan + known-place merge, reclaim steps without destructive commands, and the blocklist
 
 ## License
 
