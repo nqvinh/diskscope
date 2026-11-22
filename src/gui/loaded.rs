@@ -167,9 +167,15 @@ impl ScanJob {
     }
 
     /// The finished scan, once the thread is done.
-    pub fn poll(&mut self) -> Option<Loaded> {
+    /// The finished scan once the thread is done; Err when the scan thread failed (so the window
+    /// never keeps showing "Scanning..." for a job that has ended).
+    pub fn poll(&mut self) -> Option<Result<Loaded, String>> {
         if self.handle.as_ref().is_some_and(|h| h.is_finished()) {
-            return self.handle.take().and_then(|h| h.join().ok());
+            let joined = self.handle.take()?.join();
+            return Some(joined.map_err(|e| {
+                let why = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                format!("the scan stopped because of an internal error ({why}); please report it")
+            }));
         }
         None
     }
@@ -183,4 +189,32 @@ fn never_suggest_filters_derived_suggestions() {
     assert!(all.iter().any(|c| tree.path(c.node) == Path::new("Q:\\rs\\target")), "rust target is suggested");
     let kept = Derived::compute(&tree, &ao, &["q:\\RS".to_string()]).candidates;
     assert!(kept.is_empty(), "everything inside a never-suggest entry is dropped");
+}
+
+#[test]
+fn derive_passes_on_a_large_unicode_tree_stay_fast() {
+    // Guard against panics and accidental O(n^2) passes: 600k nodes with Unicode names, markers
+    // and rebuildable folders. Takes well under a second in release; the budget is for debug.
+    use crate::model::{Node, F_DIR, NONE};
+    use crate::rules::labels::Label;
+    let mut t = Tree::new(PathBuf::from("Q:\\"), 4096);
+    t.push("Q:\\", Node { flags: F_DIR, ..Node::default() }, NONE);
+    let names = ["Có gì mới trong phiên bản mới nhất.lnk", "báo cáo tháng ấy.docx", "日本語.txt", "package.json", "ảnh.jpg", "x.sln"];
+    for d in 0..100_000u32 {
+        let dir = t.push(&format!("Thư mục {d} ấ"), Node { flags: F_DIR, modified: d, ..Node::default() }, 0);
+        if d % 7 == 0 {
+            let nm = t.push("node_modules", Node { flags: F_DIR, label: Label::DevDeps as u8, ..Node::default() }, dir);
+            t.push("index.js", Node { size: 5000, files: 1, label: Label::DevDeps as u8, ..Node::default() }, nm);
+        }
+        for (k, n) in names.iter().enumerate().take(4 + (d as usize % 3)) {
+            t.push(n, Node { size: 1000 + k as u64, files: 1, modified: d, ..Node::default() }, dir);
+        }
+    }
+    crate::scan::aggregate::roll_up(&mut t);
+    assert!(t.len() > 500_000, "{} nodes", t.len());
+    let start = std::time::Instant::now();
+    let d = Derived::compute(&t, &AoSessions::default(), &["q:\\thư mục 7 ấ".to_string()]);
+    let took = start.elapsed();
+    assert!(!d.projects.is_empty() && !d.ext_stats.is_empty());
+    assert!(took.as_secs() < 30, "derive passes took {took:?} on {} nodes", t.len());
 }

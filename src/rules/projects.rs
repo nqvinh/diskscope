@@ -32,7 +32,8 @@ fn kinds_of(tree: &Tree, dir: u32) -> Vec<&'static str> {
     for c in tree.children(dir) {
         let n = tree.name(c);
         let is = |s: &str| n.eq_ignore_ascii_case(s);
-        let lower_end = |s: &str| n.len() >= s.len() && n[n.len() - s.len()..].eq_ignore_ascii_case(s);
+        // `get` (not slicing): names are Unicode, a byte offset can fall inside a character.
+        let lower_end = |s: &str| n.len().checked_sub(s.len()).and_then(|i| n.get(i..)).is_some_and(|t| t.eq_ignore_ascii_case(s));
         let kind = if is(".git") {
             Some("git")
         } else if is("package.json") {

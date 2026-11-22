@@ -44,3 +44,18 @@ fn finds_outermost_projects_and_their_rebuildable_folders() {
     assert!(found[1].kinds.contains(&"Unity") && found[1].reclaimable == 400_000);
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn unicode_names_never_break_detection() {
+    // A real name from a Vietnamese desktop: byte slicing used to land inside 'ấ' and panic.
+    let tree = crate::model::fixture::build("Q:\\", &[
+        ("Desktop\\Có gì mới trong phiên bản mới nhất.lnk", 1200, 1),
+        ("Dự án\\Báo cáo.sln", 300, 2),
+        ("Dự án\\bin\\app.exe", 9000, 2),
+        ("写真\\日本語のファイル名.jpg", 5000, 3),
+        ("x\\ấ", 1, 1),
+    ]);
+    let found = detect(&tree);
+    assert_eq!(found.len(), 1);
+    assert_eq!((tree.name(found[0].node), found[0].kinds.as_slice()), ("Dự án", [".NET"].as_slice()));
+}

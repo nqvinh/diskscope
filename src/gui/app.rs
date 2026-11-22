@@ -82,6 +82,7 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>, settings_path: Option<PathBuf>) -> Self {
         let settings = super::settings::Settings::load(&settings_path);
+        super::fonts::install(&cc.egui_ctx);
         settings.apply(&cc.egui_ctx);
         let _ = crate::cleanup::history::History::default_location().prune(crate::fmt::now());
         let mut app = Self {
@@ -178,9 +179,16 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        if let Some(loaded) = self.job.as_mut().and_then(|j| j.poll()) {
-            self.toast(loaded.snapshot_note.clone());
-            self.scan_finished(loaded);
+        match self.job.as_mut().and_then(|j| j.poll()) {
+            Some(Ok(loaded)) => {
+                self.toast(loaded.snapshot_note.clone());
+                self.scan_finished(loaded);
+            }
+            Some(Err(e)) => {
+                self.job = None;
+                self.toast(e);
+            }
+            None => {}
         }
         let mut acts = Vec::new();
         let mut start = Panel::top("header").show(ui, |ui| self.header.ui(ui, &self.job, &self.data, &mut self.settings_open)).inner;

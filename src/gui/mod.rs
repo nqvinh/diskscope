@@ -7,6 +7,7 @@ mod ext_table;
 mod compare_view;
 mod projects_view;
 mod files_view;
+mod fonts;
 mod header;
 mod labels_view;
 mod history_view;

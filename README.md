@@ -191,7 +191,8 @@ cargo test --release
 $env:DISKSCOPE_PROFILE = 1; .\target\release\diskscope-cli.exe C: --top 1   # phase timings on stderr
 ```
 
-83 tests cover:
+85 tests cover:
+- Unicode file names (Vietnamese, Japanese) in project detection, and every post-scan pass on a 600k-node tree with Unicode names under a time budget (guards against crashes and slow passes)
 - projects: outermost roots on a real folder (nothing found inside `node_modules`, marker files never grouped), rebuildable folders, and the last-commit reader (including a worktree `.git` file)
 - scan history (migration of the old single snapshot, newest first, per-root cap, age prune; v1 and v2 snapshot files) and the compare diff (grew / shrank / new / gone at the right folder level, minimum change)
 - excludes: name and path patterns, skip vs hide on a real folder (skipped items are not counted, hidden ones are counted but never listed), never-suggest filtering, and older settings files loading with empty lists

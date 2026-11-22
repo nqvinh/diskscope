@@ -14,7 +14,13 @@ pub fn run(o: &Options) -> i32 {
         eprintln!("error: {} does not exist", p.display());
         return 2;
     }
-    let tree = match crate::scan::scan_many(&o.paths, &Progress::default(), o.method) {
+    let progress = Progress::default();
+    if std::env::var_os("DISKSCOPE_LIVE").is_some() {
+        // Same as the window: live suggestions are streamed while scanning (for profiling).
+        let ao = crate::scan::profile::time("agent sessions (ao session ls)", AoSessions::load);
+        progress.live.set(std::sync::Arc::new(candidates::LiveSink::new(ao))).ok();
+    }
+    let tree = match crate::scan::profile::time("scan (time to tree)", || crate::scan::scan_many(&o.paths, &progress, o.method)) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("error: {e}");
