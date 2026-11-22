@@ -134,6 +134,24 @@ impl App {
                     self.tab = Tab::Files;
                 }
                 Act::ToolClean { tool, estimate } => self.tools.request(tool, estimate),
+                Act::NeverSuggest(p) => {
+                    let s = p.display().to_string();
+                    if !self.settings.never_suggest.iter().any(|x| x.eq_ignore_ascii_case(&s)) {
+                        self.settings.never_suggest.push(s);
+                        self.settings.save(&self.settings_path);
+                    }
+                    if let Some(d) = &mut self.data {
+                        d.set_never_suggest(&self.settings.never_suggest);
+                    }
+                    self.toast(format!("{} will not be suggested again (undo in Settings)", p.display()));
+                }
+                Act::Exclude { pattern, mode } => {
+                    if !self.settings.excludes.iter().any(|e| e.pattern.eq_ignore_ascii_case(&pattern)) {
+                        self.settings.excludes.push(crate::rules::excludes::Exclude { pattern: pattern.clone(), mode });
+                        self.settings.save(&self.settings_path);
+                    }
+                    self.toast(format!("{pattern}: {} from the next scan (undo in Settings)", mode.label().to_lowercase()));
+                }
                 Act::Delete { shift, targets } => match delete_request(shift, targets) {
                     Ok(req) => self.dialogs.open(req),
                     Err(e) => self.toast(e),

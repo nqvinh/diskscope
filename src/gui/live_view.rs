@@ -23,8 +23,9 @@ pub fn confidence_color(c: Confidence) -> Color32 {
     }
 }
 
-pub fn ui(ui: &mut Ui, sink: &LiveSink, review: &ReviewList, acts: &mut Vec<Act>) {
+pub fn ui(ui: &mut Ui, sink: &LiveSink, review: &ReviewList, never: &[String], acts: &mut Vec<Act>) {
     let mut list = sink.ranked(1 << 20);
+    list.retain(|s| !crate::rules::excludes::never_suggested(never, &s.path));
     let state_id = egui::Id::unique("live-sort");
     let mut sort: SortState = ui.data(|d| d.get_temp(state_id)).unwrap_or(SortState { key: SortKey::Score, desc: true });
     let before = sort;
@@ -54,6 +55,7 @@ pub fn ui(ui: &mut Ui, sink: &LiveSink, review: &ReviewList, acts: &mut Vec<Act>
         .id_salt("live")
         .striped(true)
         .resizable(true)
+        .sense(egui::Sense::click())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
         .column(Column::exact(52.0))
         .column(Column::initial(84.0))
@@ -86,6 +88,12 @@ pub fn ui(ui: &mut Ui, sink: &LiveSink, review: &ReviewList, acts: &mut Vec<Act>
                 row.col(|ui| date_cell(ui, s.modified, ""));
                 row.col(|ui| { ui.label(s.path.display().to_string()).on_hover_text(s.path.display().to_string()); });
                 row.col(|ui| { ui.label(&s.reason).on_hover_text(&s.reason); });
+                row.response().context_menu(|ui| {
+                    if ui.button("Never suggest this").on_hover_text("Settings lists it; remove it there to see it again").clicked() {
+                        acts.push(Act::NeverSuggest(s.path.clone()));
+                        ui.close();
+                    }
+                });
             });
         });
     if sort != before {

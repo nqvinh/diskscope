@@ -15,6 +15,7 @@ mod lists;
 pub mod loaded;
 mod review_view;
 mod settings;
+mod settings_lists;
 mod tool_dialog;
 mod tools_view;
 mod tree_columns;

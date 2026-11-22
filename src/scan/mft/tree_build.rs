@@ -5,7 +5,6 @@
 
 use super::record::{Rec, R_DIR, R_HAS_SI, R_IN_USE};
 use crate::model::Tree;
-use crate::rules::labels::Label;
 use crate::scan::prepare::{prepare, Ctx};
 use crate::scan::{builder::Builder, entry::RawEntry, profile, Progress};
 use rayon::prelude::*;
@@ -102,15 +101,19 @@ fn build_with(t: &Table, rel: &Path, root: PathBuf, cluster: u64, progress: &Pro
     // Breadth-first, one level at a time: (record, node, label) of the level's folders. Each slice
     // is prepared in parallel and committed in order, so the tree matches a serial BFS exactly.
     let (mut level, mut depth) = (vec![(top, 0u32, root_ctx.label)], root_ctx.depth);
+    let filter = progress.filter.get().map(|f| &**f).filter(|f| !f.is_empty());
     while !level.is_empty() {
         let mut next = Vec::new();
         for slice in level.chunks(SLICE) {
-            let prep = |&(rec, node, label): &(u32, u32, Label)| {
+            // Folder paths only when an exclude pattern needs them (computed before the parallel step).
+            let dirs: Vec<Option<PathBuf>> = slice.iter().map(|&(_, node, _)| filter.filter(|f| f.has_paths()).map(|_| b.tree.path(node))).collect();
+            let prep = |k: usize| {
+                let (rec, node, label) = slice[k];
                 let name = if node == 0 { root_ctx.name.clone() } else { t.name(&t.recs[rec as usize]).to_string() };
                 let batch: Vec<RawEntry> = list(rec).iter().map(|&k| t.entry(k)).collect();
-                prepare(&Ctx { label, name, depth }, batch)
+                prepare(&Ctx { label, name, depth }, batch, filter, dirs[k].as_deref())
             };
-            let prepared: Vec<_> = if par { slice.par_iter().map(prep).collect() } else { slice.iter().map(prep).collect() };
+            let prepared: Vec<_> = if par { (0..slice.len()).into_par_iter().map(prep).collect() } else { (0..slice.len()).map(prep).collect() };
             for (&(_, node, _), p) in slice.iter().zip(prepared) {
                 next.extend(b.commit(node, depth, p).into_iter().map(|c| (c.id as u32, c.node, c.ctx.label)));
             }

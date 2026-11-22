@@ -12,6 +12,9 @@ pub const F_DENIED: u8 = 4;
 pub const F_GROUP: u8 = 8;
 /// Marked as a live cleanup suggestion while the scan runs.
 pub const F_CANDIDATE: u8 = 16;
+/// Matched a "hide" exclude: counted in folder totals, but `children()` never yields it, so no
+/// view, list, search or suggestion shows it.
+pub const F_HIDDEN: u8 = 32;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Node {
@@ -239,11 +242,13 @@ pub struct Children<'a> {
 impl Iterator for Children<'_> {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
-        if self.next == NONE {
-            return None;
+        while self.next != NONE {
+            let c = self.next;
+            self.next = self.tree.node(c).next_sibling;
+            if self.tree.node(c).flags & F_HIDDEN == 0 {
+                return Some(c);
+            }
         }
-        let c = self.next;
-        self.next = self.tree.node(c).next_sibling;
-        Some(c)
+        None
     }
 }

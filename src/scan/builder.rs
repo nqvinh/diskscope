@@ -75,10 +75,10 @@ impl Builder {
         Ctx { label: Label::from_u8(self.tree.node(parent).label), name, depth: self.depth(parent) + 1 }
     }
 
-    /// Appends one folder's entries (prepare + commit in one step).
+    /// Appends one folder's entries (prepare + commit in one step, no excludes).
     pub fn add(&mut self, parent: u32, batch: Vec<RawEntry>) -> Vec<Child> {
         let ctx = self.ctx_of(parent);
-        self.commit(parent, ctx.depth, prepare(&ctx, batch))
+        self.commit(parent, ctx.depth, prepare(&ctx, batch, None, None))
     }
 
     /// Pushes a prepared folder (`depth` = its children's depth); returns the sub-folders to

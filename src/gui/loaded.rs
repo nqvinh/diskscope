@@ -1,7 +1,8 @@
 //! A finished scan plus everything derived from it. Built on the scan thread so the window stays
 //! responsive; refreshed on the UI thread after a cleanup removes items.
 
-use crate::model::{graft::ALL_DRIVES, Tree};
+use crate::model::{graft::ALL_DRIVES, Tree, F_CANDIDATE};
+use crate::rules::excludes::{never_suggested, Exclude, ScanFilter};
 use crate::rules::{ao_sessions::AoSessions, candidates::{detect, Candidate, LiveSink}};
 use crate::scan::extensions::{ext_stats, palette, ExtStat};
 use crate::scan::{scan_many, Method, Progress};
@@ -26,10 +27,12 @@ pub struct Loaded {
     pub snapshot_note: String,
     pub ao: AoSessions,
     pub last_access: Option<bool>,
+    /// Paths the user never wants suggested (Settings); filtered out of `candidates`.
+    pub never_suggest: Vec<String>,
 }
 
 impl Loaded {
-    pub fn build(tree: Tree, ao: AoSessions) -> Self {
+    pub fn build(tree: Tree, ao: AoSessions, never_suggest: Vec<String>) -> Self {
         let file = snapshot::snapshot_file(&tree.root_path);
         let prev_snapshot = snapshot::load(&file);
         let snapshot_note = if tree.cancelled {
@@ -52,15 +55,28 @@ impl Loaded {
             snapshot_note,
             ao,
             last_access: crate::sys::last_access_enabled(),
+            never_suggest,
         };
         l.refresh();
         l
     }
 
     pub fn refresh(&mut self) {
-        let d = Derived::compute(&self.tree, &self.ao);
+        let d = Derived::compute(&self.tree, &self.ao, &self.never_suggest);
         (self.ext_stats, self.palette, self.candidates, self.label_totals, self.ext_index) = (d.ext_stats, d.palette, d.candidates, d.label_totals, d.ext_index);
+        // Marks the final suggestions, so their right-click menu offers "Never suggest this".
+        for c in &self.candidates {
+            self.tree.node_mut(c.node).flags |= F_CANDIDATE;
+        }
         self.generation += 1;
+    }
+
+    /// New "never suggest" list (from Settings): the suggestions are recomputed right away.
+    pub fn set_never_suggest(&mut self, list: &[String]) {
+        if self.never_suggest != list {
+            self.never_suggest = list.to_vec();
+            self.refresh();
+        }
     }
 
     /// Detaches a deleted path from the tree (call `refresh` after a batch).
@@ -82,15 +98,18 @@ pub struct Derived {
 }
 
 impl Derived {
-    pub fn compute(tree: &Tree, ao: &AoSessions) -> Self {
+    pub fn compute(tree: &Tree, ao: &AoSessions, never_suggest: &[String]) -> Self {
         use crate::scan::profile::time;
         let t = std::time::Instant::now();
         // Four independent read-only passes over the tree, run side by side.
-        let ((ext_stats, candidates), (label_totals, ext_index)) = rayon::join(
+        let ((ext_stats, mut candidates), (label_totals, ext_index)) = rayon::join(
             || rayon::join(|| time("derive: extension table", || ext_stats(tree, 0)), || time("derive: suggestions", || detect(tree, ao, crate::fmt::now()))),
             || rayon::join(|| time("derive: label totals", || super::labels_view::label_totals(tree)), || time("derive: extension file index", || crate::views::ext_files::build_index(tree))),
         );
         let palette = palette(tree, &ext_stats);
+        if !never_suggest.is_empty() {
+            candidates.retain(|c| !never_suggested(never_suggest, &tree.path(c.node)));
+        }
         crate::scan::profile::report("derive: total (parallel)", t.elapsed());
         Self { ext_stats, palette, candidates, label_totals, ext_index }
     }
@@ -117,8 +136,10 @@ pub struct ScanJob {
 }
 
 impl ScanJob {
-    pub fn start(path: PathBuf) -> Self {
+    /// Starts a scan of `path` with the user's excludes and "never suggest" list.
+    pub fn start(path: PathBuf, excludes: &[Exclude], never_suggest: Vec<String>) -> Self {
         let progress = Arc::new(Progress::default());
+        progress.filter.set(Arc::new(ScanFilter::new(excludes))).ok();
         let (p, root) = (progress.clone(), path.clone());
         let handle = std::thread::spawn(move || {
             // Session status first, so AO worktrees are classified correctly in the live list.
@@ -129,7 +150,7 @@ impl ScanJob {
                 t.method_note = e;
                 t
             });
-            Loaded::build(tree, sink.ao.clone())
+            Loaded::build(tree, sink.ao.clone(), never_suggest)
         });
         Self { path, progress, started: Instant::now(), handle: Some(handle) }
     }
@@ -145,4 +166,14 @@ impl ScanJob {
         }
         None
     }
+}
+
+#[test]
+fn never_suggest_filters_derived_suggestions() {
+    let tree = crate::model::fixture::build("Q:\\", &[("rs\\Cargo.toml", 10, 1), ("rs\\target\\release\\app.exe", 50 << 20, 1)]);
+    let ao = AoSessions::default();
+    let all = Derived::compute(&tree, &ao, &[]).candidates;
+    assert!(all.iter().any(|c| tree.path(c.node) == Path::new("Q:\\rs\\target")), "rust target is suggested");
+    let kept = Derived::compute(&tree, &ao, &["q:\\RS".to_string()]).candidates;
+    assert!(kept.is_empty(), "everything inside a never-suggest entry is dropped");
 }

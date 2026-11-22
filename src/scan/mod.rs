@@ -21,6 +21,8 @@ pub struct Progress {
     pub cancel: AtomicBool,
     /// When set, cleanup suggestions are streamed here while the scan runs.
     pub live: std::sync::OnceLock<std::sync::Arc<crate::rules::candidates::LiveSink>>,
+    /// The user's excludes (skip / hide), applied while the tree is built.
+    pub filter: std::sync::OnceLock<std::sync::Arc<crate::rules::excludes::ScanFilter>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -23,6 +23,10 @@ pub enum Act {
     Toast(String),
     /// Open the confirm dialog for a tool's own cleanup command ("Clean with pnpm").
     ToolClean { tool: crate::cleanup::tool_actions::Tool, estimate: Option<u64> },
+    /// Never offer this path (or anything inside it) as a suggestion again (Settings can undo).
+    NeverSuggest(PathBuf),
+    /// Add an exclude for future scans (Settings can undo).
+    Exclude { pattern: String, mode: crate::rules::excludes::ExcludeMode },
 }
 
 pub fn rgb(c: [u8; 3]) -> Color32 {
@@ -90,6 +94,23 @@ pub fn node_menu(ui: &mut Ui, tree: &Tree, node: u32, acts: &mut Vec<Act>) {
         ui.ctx().copy_text(path.display().to_string());
         acts.push(Act::Toast("path copied".into()));
         ui.close();
+    }
+    ui.separator();
+    if tree.node(node).flags & crate::model::F_CANDIDATE != 0 && ui.button("Never suggest this").on_hover_text("Settings lists it; remove it there to see it again").clicked() {
+        acts.push(Act::NeverSuggest(path.clone()));
+        ui.close();
+    }
+    if node != 0 {
+        ui.menu_button("Exclude from future scans", |ui| {
+            use crate::rules::excludes::ExcludeMode;
+            for mode in [ExcludeMode::Skip, ExcludeMode::Hide] {
+                let tip = if mode == ExcludeMode::Skip { "not scanned and not counted" } else { "counted in folder sizes, not shown" };
+                if ui.button(mode.label()).on_hover_text(tip).clicked() {
+                    acts.push(Act::Exclude { pattern: path.display().to_string(), mode });
+                    ui.close();
+                }
+            }
+        });
     }
 }
 

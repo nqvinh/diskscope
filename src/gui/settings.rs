@@ -33,7 +33,7 @@ impl Accent {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[serde(default)] // fields missing in older settings files take their default
 pub struct Settings {
     /// Base text size in points (12-24); 14 = Normal.
@@ -44,11 +44,15 @@ pub struct Settings {
     /// Tree columns the user hid (bit mask, see tree_columns).
     pub tree_hidden: u16,
     pub show_extensions: bool,
+    /// Paths / name patterns skipped during scans or hidden from views (see rules::excludes).
+    pub excludes: Vec<crate::rules::excludes::Exclude>,
+    /// Paths never offered as cleanup suggestions (nor anything inside them).
+    pub never_suggest: Vec<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { font: 14.0, theme: Theme::System, accent: Accent::Blue, comfortable: false, tree_hidden: 0, show_extensions: true }
+        Self { font: 14.0, theme: Theme::System, accent: Accent::Blue, comfortable: false, tree_hidden: 0, show_extensions: true, excludes: Vec::new(), never_suggest: Vec::new() }
     }
 }
 
@@ -120,7 +124,7 @@ impl Settings {
 
     /// Settings panel contents; returns true when something changed.
     pub fn ui(&mut self, ui: &mut Ui) -> bool {
-        let before = *self;
+        let before = self.clone();
         ui.label(RichText::new("Text size").strong());
         ui.horizontal(|ui| {
             for (name, pt) in [("Small", 12.0), ("Normal", 14.0), ("Large", 17.0), ("Extra large", 20.0)] {
@@ -149,8 +153,9 @@ impl Settings {
             ui.selectable_value(&mut self.comfortable, true, "Comfortable");
         });
         ui.add_space(6.0);
-        if ui.button("Reset to defaults").clicked() {
-            *self = Settings::default();
+        if ui.button("Reset look to defaults").on_hover_text("Text size, theme, colour and rows; your exclude lists stay").clicked() {
+            let (excludes, never_suggest) = (std::mem::take(&mut self.excludes), std::mem::take(&mut self.never_suggest));
+            *self = Settings { excludes, never_suggest, ..Settings::default() };
         }
         ui.weak("Changes apply immediately and are remembered.");
         *self != before
@@ -162,12 +167,18 @@ fn settings_round_trip_and_defaults() {
     let f = std::env::temp_dir().join(format!("diskscope-settings-{}.json", std::process::id()));
     let over = Some(f.clone());
     assert_eq!(Settings::load(&over), Settings::default(), "missing file = defaults");
-    let s = Settings { font: 20.0, theme: Theme::Light, accent: Accent::Green, comfortable: true, tree_hidden: 0b100, show_extensions: false };
+    use crate::rules::excludes::{Exclude, ExcludeMode};
+    let s = Settings {
+        font: 20.0, theme: Theme::Light, accent: Accent::Green, comfortable: true, tree_hidden: 0b100, show_extensions: false,
+        excludes: vec![Exclude { pattern: "node_modules".into(), mode: ExcludeMode::Skip }, Exclude { pattern: r"D:\VMs".into(), mode: ExcludeMode::Hide }],
+        never_suggest: vec![r"D:\code\keep\node_modules".into()],
+    };
     s.save(&over);
     assert_eq!(Settings::load(&over), s);
     std::fs::write(&f, r#"{"font":17.0,"theme":"Dark","accent":"Blue","comfortable":false}"#).unwrap();
     let old = Settings::load(&over);
     assert_eq!((old.font, old.tree_hidden, old.show_extensions), (17.0, 0, true), "a v0.3.0 file loads; new fields default");
+    assert!(old.excludes.is_empty() && old.never_suggest.is_empty(), "a v0.3.x file loads with empty lists");
     std::fs::write(&f, "not json").unwrap();
     assert_eq!(Settings::load(&over), Settings::default(), "a broken file falls back to defaults");
     std::fs::remove_file(&f).ok();

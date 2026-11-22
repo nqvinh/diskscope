@@ -26,7 +26,7 @@ pub fn run(o: &Options) -> i32 {
         let tmp = std::env::temp_dir().join(format!("diskscope-profile-{}.snap", std::process::id()));
         let _ = crate::scan::profile::time("derive: snapshot save", || snapshot::save(&tree, &tmp));
         std::fs::remove_file(&tmp).ok();
-        drop(crate::gui::loaded::Derived::compute(&tree, &AoSessions::default()));
+        drop(crate::gui::loaded::Derived::compute(&tree, &AoSessions::default(), &[]));
         eprintln!("[profile] peak private memory            {:>9} MB", crate::sys::memory().peak >> 20);
     }
     let report = build(&tree, o);

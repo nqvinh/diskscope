@@ -66,6 +66,9 @@ pub struct App {
     settings: super::settings::Settings,
     settings_path: Option<PathBuf>,
     settings_open: bool,
+    lists: super::settings_lists::ListsUi,
+    /// What the last scan covered ("Scan again to apply" in Settings).
+    last_root: Option<PathBuf>,
     /// Item to select in the tree once the first scan finishes (`--select`).
     pending_select: Option<PathBuf>,
     /// Tab to open once the first scan finishes (`--tab`).
@@ -100,7 +103,10 @@ impl App {
             toast: None,
             settings,
             settings_path,
-            settings_open: false,
+            // `--tab settings` opens the Settings window at start (screenshots without any input).
+            settings_open: tab.as_deref() == Some("settings"),
+            lists: Default::default(),
+            last_root: None,
             pending_select: select,
             pending_tab: tab,
         };
@@ -121,7 +127,8 @@ impl App {
         self.review.clear();
         self.review_sel.clear();
         self.ext_sel.clear();
-        self.job = Some(ScanJob::start(path));
+        self.last_root = Some(path.clone());
+        self.job = Some(ScanJob::start(path, &self.settings.excludes, self.settings.never_suggest.clone()));
     }
 
     fn toast(&mut self, msg: String) {
@@ -170,12 +177,25 @@ impl eframe::App for App {
         let mut acts = Vec::new();
         let mut start = Panel::top("header").show(ui, |ui| self.header.ui(ui, &self.job, &self.data, &mut self.settings_open)).inner;
         if self.settings_open {
-            let mut open = true;
-            let mut changed = false;
-            egui::Window::new("Settings").open(&mut open).collapsible(false).resizable(false).show(ui.ctx(), |ui| changed = self.settings.ui(ui));
+            let (mut open, mut changed, mut lists) = (true, false, Default::default());
+            let can_rescan = self.last_root.is_some() && self.job.is_none();
+            egui::Window::new("Settings").open(&mut open).collapsible(false).resizable(false).show(ui.ctx(), |ui| {
+                changed = self.settings.ui(ui);
+                ui.separator();
+                lists = self.lists.ui(ui, &mut self.settings, can_rescan);
+            });
+            let lists: super::settings_lists::ListsOut = lists;
             if changed {
                 self.settings.apply(ui.ctx());
+            }
+            if changed || lists.changed {
                 self.settings.save(&self.settings_path);
+            }
+            if let Some(d) = &mut self.data {
+                d.set_never_suggest(&self.settings.never_suggest);
+            }
+            if lists.rescan {
+                start = self.last_root.clone();
             }
             self.settings_open = open;
         }
@@ -241,7 +261,7 @@ impl eframe::App for App {
             self.data = Some(data);
         } else {
             CentralPanel::default().show(ui, |ui| match self.job.as_ref().and_then(|j| j.progress.live.get().cloned()) {
-                Some(sink) => live_view::ui(ui, &sink, &self.review, &mut acts),
+                Some(sink) => live_view::ui(ui, &sink, &self.review, &self.settings.never_suggest, &mut acts),
                 None if self.job.is_some() => {
                     ui.centered_and_justified(|ui| ui.label("Starting the scan…"));
                 }

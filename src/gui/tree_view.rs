@@ -122,7 +122,7 @@ impl TreeView {
                         row.col(|ui| review_tick(ui, tree, i, review, "picked in tree", acts));
                         row.col(|ui| {
                             ui.add_space(depth as f32 * 14.0);
-                            if n.is_dir() && n.first_child != crate::model::NONE {
+                            if n.is_dir() && tree.children(i).next().is_some() {
                                 let open = self.expanded.contains(&i);
                                 if ui.add(egui::Button::new(if open { "−" } else { "+" }).small().frame(false)).clicked() {
                                     toggle = Some(i);

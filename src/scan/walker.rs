@@ -85,12 +85,13 @@ fn scan_dir<'s>(s: &rayon::Scope<'s>, dir: PathBuf, idx: u32, ctx: Ctx, w: &'s W
     progress.bytes.fetch_add(bytes, Relaxed);
     progress.dirs.fetch_add(1, Relaxed);
     let depth = ctx.depth;
-    let prepared = w.outside.then(|| prepare(&ctx, std::mem::take(&mut batch)));
+    let filter = progress.filter.get().map(|f| &**f);
+    let prepared = w.outside.then(|| prepare(&ctx, std::mem::take(&mut batch), filter, Some(&dir)));
     let t_wait = Instant::now();
     let mut b = shared.lock().expect("scan lock");
     LOCK_WAIT.add(t_wait);
     let t_hold = Instant::now();
-    let prepared = prepared.unwrap_or_else(|| prepare(&ctx, batch));
+    let prepared = prepared.unwrap_or_else(|| prepare(&ctx, batch, filter, Some(&dir)));
     let descend = b.commit(idx, depth, prepared);
     drop(b);
     LOCK_HOLD.add(t_hold);

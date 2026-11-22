@@ -55,6 +55,38 @@ fn groups_small_files_and_never_follows_junctions() {
 }
 
 #[test]
+fn excludes_skip_or_hide_while_scanning() {
+    use crate::rules::excludes::{Exclude, ExcludeMode, ScanFilter};
+    let root = temp("excl");
+    std::fs::create_dir_all(root.join("app").join("node_modules")).unwrap();
+    std::fs::write(root.join("app").join("node_modules").join("big.js"), vec![1u8; 300_000]).unwrap();
+    std::fs::create_dir(root.join("vm")).unwrap();
+    std::fs::write(root.join("vm").join("disk.vhdx"), vec![2u8; 1000]).unwrap();
+    std::fs::write(root.join("win.iso"), vec![3u8; 5000]).unwrap();
+    for k in 0..20 {
+        std::fs::write(root.join(format!("f{k}.txt")), b"0123456789").unwrap();
+    }
+    let progress = Progress::default();
+    let list = [
+        Exclude { pattern: "node_modules".into(), mode: ExcludeMode::Skip },
+        Exclude { pattern: root.join("vm").display().to_string(), mode: ExcludeMode::Hide },
+        Exclude { pattern: "*.iso".into(), mode: ExcludeMode::Hide },
+    ];
+    progress.filter.set(std::sync::Arc::new(ScanFilter::new(&list))).ok();
+    let tree = walk(&root, &progress);
+    let r = tree.node(0);
+    assert_eq!(r.size, 200 + 1000 + 5000, "skipped = not counted; hidden = still counted");
+    assert_eq!(r.files, 22);
+    assert!(tree.find(Path::new("app")).is_some() && tree.find(Path::new("app\\node_modules")).is_none(), "skipped");
+    assert!(tree.find(Path::new("vm")).is_none() && tree.find(Path::new("win.iso")).is_none(), "hidden from every view");
+    let visible: Vec<String> = tree.children(0).map(|i| tree.name(i).to_string()).collect();
+    assert!(visible.iter().all(|n| n != "vm" && n != "win.iso"), "{visible:?}");
+    let stats = crate::scan::extensions::ext_stats(&tree, 0);
+    assert!(stats.iter().all(|s| tree.exts[s.ext as usize] != ".iso"), "hidden files leave the extension table");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn streams_live_suggestions_while_scanning() {
     use crate::rules::{ao_sessions::AoSessions, candidates::{Confidence, LiveSink}};
     // Not under %TEMP%: everything there is (correctly) labelled Temp.
