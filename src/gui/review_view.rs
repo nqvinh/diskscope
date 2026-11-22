@@ -3,7 +3,8 @@
 //! bypass the bin. Both act on the selected rows (or the whole list when none is selected) and
 //! always open the confirmation dialog first.
 
-use super::widgets::Act;
+use super::widgets::{sort_header, Act};
+use crate::views::sorting::{sort_list, SortKey, SortState};
 use crate::cleanup::export::{write_csv, ExportRow};
 use crate::cleanup::review::{ReviewItem, ReviewList};
 use crate::fmt::size;
@@ -32,9 +33,22 @@ pub fn ui(ui: &mut Ui, review: &ReviewList, selected: &mut HashSet<PathBuf>, bar
         ui.label("Add items from the Tree, Recent, Least used, Grew or Candidates tabs, or from the live suggestions while scanning.");
         return;
     }
+    let state_id = egui::Id::unique("review-sort");
+    let mut sort: SortState = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
+    let before = sort;
+    let mut items: Vec<&ReviewItem> = review.items().iter().collect();
+    match sort.key {
+        SortKey::Name => sort_list(&mut items, sort.desc, |i| i.path.clone(), |i| i.size),
+        _ => sort_list(&mut items, sort.desc, |i| i.size, |i| i.path.clone()),
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("review-grid").striped(true).num_columns(4).show(ui, |ui| {
-            for it in review.items() {
+            ui.label("");
+            ui.horizontal(|ui| sort_header(ui, "Size", SortKey::Size, &mut sort));
+            ui.horizontal(|ui| sort_header(ui, "Path (click rows to select)", SortKey::Name, &mut sort));
+            ui.label(RichText::new("Why").strong());
+            ui.end_row();
+            for it in items {
                 if ui.small_button("Remove").clicked() {
                     acts.push(Act::Unreview(it.path.clone()));
                 }
@@ -48,6 +62,9 @@ pub fn ui(ui: &mut Ui, review: &ReviewList, selected: &mut HashSet<PathBuf>, bar
             }
         });
     });
+    if sort != before {
+        ui.data_mut(|d| d.insert_temp(state_id, sort));
+    }
 }
 
 fn export(review: &ReviewList, acts: &mut Vec<Act>) {

@@ -18,6 +18,8 @@ pub struct Loaded {
     pub ext_stats: Vec<ExtStat>,
     pub palette: Vec<[u8; 3]>,
     pub candidates: Vec<Candidate>,
+    /// (label, bytes, files) for the By label tab.
+    pub label_totals: Vec<(crate::rules::labels::Label, u64, u64)>,
     pub prev_snapshot: Option<Snapshot>,
     pub snapshot_note: String,
     pub ao: AoSessions,
@@ -42,6 +44,7 @@ impl Loaded {
             ext_stats: Vec::new(),
             palette: Vec::new(),
             candidates: Vec::new(),
+            label_totals: Vec::new(),
             prev_snapshot,
             snapshot_note,
             ao,
@@ -55,6 +58,7 @@ impl Loaded {
         self.ext_stats = ext_stats(&self.tree, 0);
         self.palette = palette(&self.tree, &self.ext_stats);
         self.candidates = detect(&self.tree, &self.ao, crate::fmt::now());
+        self.label_totals = super::labels_view::label_totals(&self.tree);
         self.generation += 1;
     }
 

@@ -52,9 +52,11 @@ impl TimeQuery {
             .iter()
             .map(|h| ListRow {
                 node: h.node,
+                bytes: h.bytes,
                 amount: size(h.bytes),
-                time: if self.folders { String::new() } else { date(f.of(tree.node(h.node))) },
-                note: if self.folders { format!("of {} in this folder", size(tree.node(h.node).size)) } else { String::new() },
+                when: f.of(tree.node(h.node)),
+                extra: if self.folders { format!("of {}", size(tree.node(h.node).size)) } else { String::new() },
+                note: String::new(),
             })
             .collect();
     }
@@ -100,7 +102,7 @@ impl TimeQuery {
         }
         let what = if self.folders { "folders where those bytes are" } else { "files, biggest first" };
         ui.weak(format!("{} {what} (max {LIMIT})", self.rows.len()));
-        let heads = if self.folders { ["Matching", "", "Note"] } else { ["Size", "Time", ""] };
+        let heads = if self.folders { ["Matching", "Folder total", ""] } else { ["Size", "", ""] };
         list_table::ui(ui, id, data, &self.rows, heads, review, acts);
     }
 }
@@ -130,7 +132,7 @@ impl GrewView {
             let tree = &data.tree;
             self.rows = grew(tree, prev, self.min_mb as u64 * (1 << 20), LIMIT)
                 .iter()
-                .map(|g| ListRow { node: g.node, amount: format!("+{}", size(g.new - g.old)), time: size(g.new), note: format!("was {}", size(g.old)) })
+                .map(|g| ListRow { node: g.node, bytes: g.new - g.old, amount: format!("+{}", size(g.new - g.old)), when: tree.node(g.node).modified, extra: format!("now {}", size(g.new)), note: format!("was {}", size(g.old)) })
                 .collect();
         }
         list_table::ui(ui, "grew", data, &self.rows, ["Grew", "Now", "Before"], review, acts);
@@ -159,12 +161,14 @@ pub fn candidates_ui(ui: &mut Ui, data: &Loaded, review: &ReviewList, acts: &mut
         .iter()
         .map(|c| ListRow {
             node: c.node,
+            bytes: c.size,
             amount: size(c.size),
-            time: format!("{} · {}", c.confidence.label(), date(c.modified)),
+            when: c.modified,
+            extra: c.confidence.label().to_string(),
             note: format!("{}: {}", c.kind, c.reason),
         })
         .collect();
-    list_table::ui(ui, "candidates", data, &rows, ["Size", "Confidence · last change", "Kind: why"], review, acts);
+    list_table::ui(ui, "candidates", data, &rows, ["Size", "Confidence", "Kind: why"], review, acts);
 }
 
 fn export(data: &Loaded, acts: &mut Vec<Act>) {

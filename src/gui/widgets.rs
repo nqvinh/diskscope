@@ -109,3 +109,33 @@ pub fn open_in_explorer(path: &std::path::Path) {
     let arg = format!("/select,{}", path.display());
     let _ = std::process::Command::new("explorer.exe").arg(arg).spawn();
 }
+
+/// Clickable column header: click sorts by `key`, clicking again flips; arrow on the active column.
+pub fn sort_header(ui: &mut Ui, text: &str, key: crate::views::sorting::SortKey, state: &mut crate::views::sorting::SortState) {
+    let active = state.key == key;
+    if ui.selectable_label(active, egui::RichText::new(text).strong()).clicked() {
+        state.click(key);
+    }
+    if active {
+        sort_arrow(ui, state.desc);
+    }
+}
+
+/// Coloured label chip ("Dev dependencies", "Cache", ...).
+pub fn label_chip(ui: &mut Ui, label: crate::rules::labels::Label) {
+    let c = rgb(label.color());
+    egui::Frame::new().fill(c.gamma_multiply(0.35)).stroke(egui::Stroke::new(1.0, c)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(5, 0)).show(ui, |ui| {
+        ui.label(egui::RichText::new(label.name()).small().color(egui::Color32::WHITE));
+    });
+}
+
+/// Date cell: day only, "N days ago" in the tooltip.
+pub fn date_cell(ui: &mut Ui, unix: u32, note: &str) {
+    if unix == 0 {
+        return;
+    }
+    let tip = if note.is_empty() { crate::fmt::ago(unix) } else { format!("{} · {note}", crate::fmt::ago(unix)) };
+    ui.label(crate::fmt::day(unix)).on_hover_text(tip);
+}
+
+pub const ACCESS_NOTE: &str = "Windows may not update last-access times (NTFS setting), so this can be older than real use";

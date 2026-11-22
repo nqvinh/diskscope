@@ -1,7 +1,8 @@
 //! History tab: every delete action of the last 90 days (time, path, size, items, mode, result,
 //! error), filterable by path text, mode and age, exportable to CSV.
 
-use super::widgets::Act;
+use super::widgets::{sort_header, Act};
+use crate::views::sorting::{sort_list, SortKey, SortState};
 use crate::cleanup::history::{History, HistoryEntry, KEEP_DAYS};
 use crate::fmt::{count, csv_field, size};
 use eframe::egui::{self, Color32, RichText, Ui};
@@ -14,11 +15,12 @@ pub struct HistoryView {
     filter: String,
     mode: usize,
     days: u32,
+    sort: SortState,
 }
 
 impl Default for HistoryView {
     fn default() -> Self {
-        Self { entries: Vec::new(), loaded: false, filter: String::new(), mode: 0, days: KEEP_DAYS }
+        Self { entries: Vec::new(), loaded: false, filter: String::new(), mode: 0, days: KEEP_DAYS, sort: SortState { key: SortKey::Modified, desc: true } }
     }
 }
 
@@ -38,7 +40,13 @@ impl HistoryView {
             .iter()
             .filter(|e| e.at_unix >= cutoff && (self.mode == 0 || e.mode == MODES[self.mode]) && (needle.is_empty() || e.path.to_lowercase().contains(&needle)))
             .collect();
-        v.sort_by(|a, b| b.at_unix.cmp(&a.at_unix));
+        let d = self.sort.desc;
+        match self.sort.key {
+            SortKey::Size => sort_list(&mut v, d, |e| e.size, |e| std::cmp::Reverse(e.at_unix)),
+            SortKey::Items => sort_list(&mut v, d, |e| e.items, |e| std::cmp::Reverse(e.at_unix)),
+            SortKey::Name => sort_list(&mut v, d, |e| e.path.to_lowercase(), |e| std::cmp::Reverse(e.at_unix)),
+            _ => sort_list(&mut v, d, |e| e.at_unix, |e| e.path.clone()),
+        }
         v
     }
 
@@ -62,7 +70,7 @@ impl HistoryView {
                 let _ = std::process::Command::new("explorer.exe").arg("shell:RecycleBinFolder").spawn();
             }
         });
-        let rows = self.visible();
+        let rows: Vec<HistoryEntry> = self.visible().into_iter().cloned().collect();
         let recycled_ok = rows.iter().filter(|e| e.mode == "recycle" && e.result == "ok").count();
         ui.weak(format!("{} actions shown; kept for {KEEP_DAYS} days. {recycled_ok} recycled items can still be restored from the Recycle Bin until it is emptied.", rows.len()));
         TableBuilder::new(ui)
@@ -76,15 +84,18 @@ impl HistoryView {
             .column(Column::initial(420.0).clip(true))
             .column(Column::remainder().clip(true))
             .header(20.0, |mut h| {
-                for t in ["Time", "Mode", "Result", "Size", "Items", "Path", "Error / note"] {
-                    h.col(|ui| {
-                        ui.label(RichText::new(t).strong());
-                    });
-                }
+                let s = &mut self.sort;
+                h.col(|ui| sort_header(ui, "Time", SortKey::Modified, s));
+                h.col(|ui| { ui.label(RichText::new("Mode").strong()); });
+                h.col(|ui| { ui.label(RichText::new("Result").strong()); });
+                h.col(|ui| sort_header(ui, "Size", SortKey::Size, s));
+                h.col(|ui| sort_header(ui, "Items", SortKey::Items, s));
+                h.col(|ui| sort_header(ui, "Path", SortKey::Name, s));
+                h.col(|ui| { ui.label(RichText::new("Error / note").strong()); });
             })
             .body(|body| {
                 body.rows(18.0, rows.len(), |mut row| {
-                    let e = rows[row.index()];
+                    let e = &rows[row.index()];
                     row.col(|ui| { ui.label(&e.at); });
                     row.col(|ui| { ui.label(&e.mode); });
                     row.col(|ui| {

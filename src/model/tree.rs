@@ -35,6 +35,8 @@ pub struct Node {
     /// Files and folders under a folder (0 for a file).
     pub items: u32,
     pub flags: u8,
+    /// `rules::labels::Label` as u8 (fits in the padding; the node stays 64 bytes).
+    pub label: u8,
 }
 
 impl Node {

@@ -8,6 +8,7 @@ mod actions;
 use super::dialogs::Dialogs;
 use super::header::Header;
 use super::history_view::HistoryView;
+use super::labels_view::LabelsView;
 use super::lists::{candidates_ui, GrewView, TimeQuery};
 use super::loaded::{Loaded, ScanJob};
 use super::tree_view::TreeView;
@@ -28,6 +29,7 @@ enum Tab {
     LeastUsed,
     Grew,
     Candidates,
+    Labels,
     Review,
     History,
 }
@@ -45,6 +47,7 @@ pub struct App {
     review: ReviewList,
     review_sel: HashSet<PathBuf>,
     history: HistoryView,
+    labels: LabelsView,
     dialogs: Dialogs,
     toast: Option<(String, Instant)>,
     /// Item to select in the tree once the first scan finishes (`--select`).
@@ -70,6 +73,7 @@ impl App {
             review: ReviewList::default(),
             review_sel: HashSet::new(),
             history: HistoryView::default(),
+            labels: LabelsView::default(),
             dialogs: Dialogs::default(),
             toast: None,
             pending_select: select,
@@ -106,6 +110,7 @@ impl App {
                 (Tab::LeastUsed, "Least used".into()),
                 (Tab::Grew, "Grew since last scan".into()),
                 (Tab::Candidates, format!("Candidates ({})", data.candidates.len())),
+                (Tab::Labels, "By label".into()),
                 (Tab::Review, String::new()),
                 (Tab::History, "History".into()),
             ] {
@@ -152,7 +157,7 @@ impl eframe::App for App {
             Panel::bottom("treemap").resizable(true).default_size(320.0).min_size(120.0).show(ui, |ui| {
                 self.map.ui(ui, &data, self.tree.selected, &mut acts);
             });
-            Panel::right("extensions").resizable(true).default_size(470.0).show(ui, |ui| ext_table::ui(ui, &data));
+            Panel::right("extensions").resizable(true).default_size(330.0).show(ui, |ui| ext_table::ui(ui, &data));
             CentralPanel::default().show(ui, |ui| {
                 self.tabs(ui, &data);
                 match self.tab {
@@ -161,6 +166,7 @@ impl eframe::App for App {
                     Tab::LeastUsed => self.least.ui_least_used(ui, &data, &self.review, &mut acts),
                     Tab::Grew => self.grew.ui(ui, &data, &self.review, &mut acts),
                     Tab::Candidates => candidates_ui(ui, &data, &self.review, &mut acts),
+                    Tab::Labels => self.labels.ui(ui, &data, &self.review, &mut acts),
                     Tab::Review => review_view::ui(ui, &self.review, &mut self.review_sel, &targets, &mut acts),
                     Tab::History => self.history.ui(ui, &mut acts),
                 }

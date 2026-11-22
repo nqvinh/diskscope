@@ -122,3 +122,16 @@ fn stale_node_modules_rank_as_likely_and_recent_as_check() {
     assert_eq!(conf("old"), Confidence::Likely);
     assert_eq!(conf("new"), Confidence::Check);
 }
+
+#[test]
+fn system_labelled_items_are_never_suggested() {
+    let mut t = build("C:\\", &[("Windows\\Temp\\node_modules\\x.js", 5 * MB, 0), ("dev\\node_modules\\y.js", 5 * MB, 0)]);
+    let win = t.find(std::path::Path::new("Windows")).unwrap();
+    let mut stack = vec![win];
+    while let Some(i) = stack.pop() {
+        t.node_mut(i).label = crate::rules::labels::Label::System as u8;
+        stack.extend(t.children(i).collect::<Vec<_>>());
+    }
+    let paths: Vec<String> = detect(&t, &AoSessions::default(), 0).iter().map(|c| t.path(c.node).display().to_string()).collect();
+    assert_eq!(paths, ["C:\\dev\\node_modules"]);
+}

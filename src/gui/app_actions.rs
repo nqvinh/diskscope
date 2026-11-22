@@ -51,6 +51,7 @@ impl App {
                 "least-used" => Tab::LeastUsed,
                 "grew" => Tab::Grew,
                 "candidates" => Tab::Candidates,
+                "labels" | "by-label" => Tab::Labels,
                 "review" => Tab::Review,
                 "history" => Tab::History,
                 _ => Tab::Tree,

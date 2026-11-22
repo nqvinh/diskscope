@@ -28,6 +28,12 @@ diskscope shows where your disk space went: a folder tree, an extension table an
   - Results are ranked by reclaimable size × confidence: *safe cache*, *likely safe* or *check first*.
   - Each suggestion has a one-line reason and its last-change date.
   - Rules cover npm/pnpm/Yarn caches, `node_modules` of stale projects, Rust `target`, Unity `Library`/`Bee`/`Temp`, Gradle, `dist`, `__pycache__`, `.venv`, the user temp folder, older app versions in AppData, and git worktrees of finished AI-agent sessions (via the `ao` CLI, if installed).
+- **Automatic labels for every item, assigned while scanning:** Cache, Dev dependencies, Build output, Temp, Logs, Installers, Archives, Video, Images, Audio, Documents, Games, VMs / disk images, App data, System, Other.
+  - Folder rules such as `node_modules`, Rust `target`, a Unity `Library` or `steamapps` are inherited by their contents; other files are labelled by extension.
+  - A **By label** view totals the size per label; click a label to list its biggest items.
+  - Labels only describe content. They never select anything, and **System** items are never suggested for deletion.
+- **Sortable everywhere:** tree, suggestions, Review, History and every list. Click a header to sort, click again to flip; the default is size, largest first. The tree sorts one folder level at a time, so it stays instant on millions of items.
+- **Last-touch dates:** Last modified for every file and folder (a folder shows the newest change inside it) and Last accessed (the tooltip notes that Windows may not update access times), shown as dates with "N days ago" in the tooltip.
 - **Review-first deletion.**
   - Nothing is ever ticked for you.
   - **Del** moves to the Recycle Bin. **Shift+Del** deletes permanently and requires typing `DELETE`.
@@ -72,9 +78,11 @@ Get `diskscope.exe` from the [latest release](https://github.com/nqvinh/diskscop
    - **Delete permanently (Shift+Del)**: confirm, then type `DELETE`.
 5. Look back any time in **History**.
 
-![Ranked cleanup suggestions with confidence levels](docs/images/candidates.png)
+![Ranked cleanup suggestions with confidence levels and labels](docs/images/candidates.png)
 
-Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` opens a tab.
+![Size per automatic label, with the biggest items of the selected label](docs/images/labels.png)
+
+Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `history`, ...) opens a tab.
 
 ## Run as administrator for the fast scan
 
@@ -122,13 +130,14 @@ cargo build --release        # Rust 1.95 is pinned in rust-toolchain.toml
 cargo test --release
 ```
 
-44 tests cover:
+50 tests cover:
 - the MFT record parser (on synthetic FILE records) and the tree builder
 - aggregation, the treemap layout and the blocklist
 - suggestion rules and ranking
 - the confirmation gate, Del / Shift+Del routing, and deleting only the listed items
 - small-file grouping, and junctions never being followed (on a real temporary folder)
 - history append and the 90-day prune
+- sort order (ascending/descending, ties), the folder last-modified roll-up, label rules on sample paths, and System items never being suggested
 
 ## License
 

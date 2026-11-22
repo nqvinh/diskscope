@@ -1,6 +1,6 @@
 [package]
 name = "diskscope"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "WizTree-like disk analyzer with a review-first cleanup flow (Windows)"
 license = "MIT"

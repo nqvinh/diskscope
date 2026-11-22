@@ -35,7 +35,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn file(size: u64, modified: u32) -> Node {
-        Node { size, alloc: size.div_ceil(4096) * 4096, files: 1, modified, ..Node::default() }
+        Node { size, alloc: size.div_ceil(4096) * 4096, files: 1, modified, accessed: modified, created: modified, ..Node::default() }
     }
 
     /// root/{a.txt 100, sub/{b.bin 5000, c.bin 10}}
@@ -58,7 +58,10 @@ mod tests {
         assert_eq!(root.alloc, 4096 + 8192 + 4096);
         assert_eq!(root.files, 3);
         assert_eq!(root.items, 4);
-        assert_eq!(root.modified, 50);
+        assert_eq!(root.modified, 50, "folder last-modified = newest modified time of anything inside");
+        assert_eq!(root.accessed, 50, "same roll-up for last accessed");
+        let sub_node = t.node(t.find(std::path::Path::new("sub")).unwrap());
+        assert_eq!((sub_node.modified, sub_node.created), (50, 50));
         let sub = t.find(std::path::Path::new("X:\\data\\SUB")).unwrap();
         assert_eq!(t.node(sub).size, 5010);
         assert_eq!(t.node(sub).items, 2);

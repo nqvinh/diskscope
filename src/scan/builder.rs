@@ -6,6 +6,7 @@ use super::{aggregate, entry::RawEntry, extensions::ext_of, Progress};
 use crate::model::{Node, Tree, F_CANDIDATE, F_DENIED, F_DIR, F_GROUP, F_REPARSE, NONE};
 use crate::rules::candidate_rules::{classify, old_versions, Confidence};
 use crate::rules::candidates::{LiveSink, LiveSuggestion};
+use crate::rules::labels::{self, Label};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,8 @@ pub struct Builder {
     live: Option<Arc<LiveSink>>,
     /// Live suggestion node -> index in the sink's list.
     slots: HashMap<u32, usize>,
+    /// Path depth of the scan root (C:\ = 0), for drive-root label rules.
+    root_depth: usize,
 }
 
 impl Builder {
@@ -42,8 +45,10 @@ impl Builder {
             node.created = e.created;
             node.accessed = e.accessed;
         }
+        node.label = labels::root(&root) as u8;
+        let root_depth = root.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count();
         tree.push(&root.display().to_string(), node, NONE);
-        Self { tree, ext_ids: HashMap::new(), live, slots: HashMap::new() }
+        Self { tree, ext_ids: HashMap::new(), live, slots: HashMap::new(), root_depth }
     }
 
     fn ext_id(&mut self, name: &str) -> u16 {
@@ -71,6 +76,14 @@ impl Builder {
                 *per_ext.entry(ext_of(&e.name)).or_default() += 1;
             }
         }
+        let plabel = Label::from_u8(self.tree.node(parent).label);
+        let pname = if parent == 0 {
+            self.tree.root_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        } else {
+            self.tree.name(parent).to_string()
+        };
+        let depth = self.depth(parent) + 1;
+        let siblings: Vec<String> = batch.iter().map(|e| e.name.to_lowercase()).collect();
         let mut groups: HashMap<u16, Node> = HashMap::new();
         let mut descend = Vec::new();
         let (mut new_dirs, mut bytes, mut newest) = (Vec::new(), 0u64, 0u32);
@@ -81,7 +94,8 @@ impl Builder {
             }
             if group && is_small(&e) && per_ext.get(&ext_of(&e.name)).copied().unwrap_or(0) >= GROUP_MIN_PER_EXT {
                 let ext = self.ext_id(&e.name);
-                let g = groups.entry(ext).or_insert_with(|| Node { flags: F_GROUP, ext, ..Node::default() });
+                let label = labels::file(&e.name, plabel) as u8;
+                let g = groups.entry(ext).or_insert_with(|| Node { flags: F_GROUP, ext, label, ..Node::default() });
                 g.size += e.size;
                 g.alloc += e.alloc;
                 g.files += 1;
@@ -90,7 +104,8 @@ impl Builder {
                 g.accessed = g.accessed.max(e.accessed);
                 continue;
             }
-            let mut node = Node { modified: e.modified, created: e.created, accessed: e.accessed, ..Node::default() };
+            let label = if e.is_dir() { labels::folder(&e.name, &pname, plabel, &siblings, depth) } else { labels::file(&e.name, plabel) };
+            let mut node = Node { modified: e.modified, created: e.created, accessed: e.accessed, label: label as u8, ..Node::default() };
             if e.is_dir() {
                 node.flags = F_DIR;
                 if e.is_reparse() {
@@ -122,6 +137,17 @@ impl Builder {
             self.live_update(&live, parent, &new_dirs, bytes, newest);
         }
         descend
+    }
+
+    /// Path depth of a node (drive-root children = 1).
+    fn depth(&self, i: u32) -> usize {
+        let mut d = self.root_depth;
+        let mut c = i;
+        while c != 0 && c != NONE {
+            d += 1;
+            c = self.tree.node(c).parent;
+        }
+        d
     }
 
     fn inside_suggestion(&self, i: u32) -> bool {

@@ -5,6 +5,7 @@ mod app;
 mod dialogs;
 mod ext_table;
 mod header;
+mod labels_view;
 mod history_view;
 mod list_table;
 mod live_view;

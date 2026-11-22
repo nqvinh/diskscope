@@ -57,7 +57,10 @@ fn groups_small_files_and_never_follows_junctions() {
 #[test]
 fn streams_live_suggestions_while_scanning() {
     use crate::rules::{ao_sessions::AoSessions, candidates::{Confidence, LiveSink}};
-    let root = temp("live");
+    // Not under %TEMP%: everything there is (correctly) labelled Temp.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-tmp").join(format!("live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
     std::fs::create_dir_all(root.join("app").join("node_modules").join("pkg")).unwrap();
     std::fs::write(root.join("app").join("node_modules").join("pkg").join("index.js"), vec![1u8; 300_000]).unwrap();
     std::fs::create_dir_all(root.join("rs").join("target").join("release")).unwrap();
@@ -66,7 +69,12 @@ fn streams_live_suggestions_while_scanning() {
     let progress = Progress::default();
     let sink = std::sync::Arc::new(LiveSink::new(AoSessions::default()));
     progress.live.set(sink.clone()).ok();
-    let _tree = walk(&root, &progress);
+    let tree = walk(&root, &progress);
+    let label = |p: &str| crate::rules::labels::Label::from_u8(tree.node(tree.find(Path::new(p)).unwrap()).label);
+    assert_eq!(label("app\\node_modules"), crate::rules::labels::Label::DevDeps);
+    assert_eq!(label("app\\node_modules\\pkg\\index.js"), crate::rules::labels::Label::DevDeps, "inherited");
+    assert_eq!(label("rs\\target"), crate::rules::labels::Label::Build);
+    assert_eq!(label("rs\\Cargo.toml"), crate::rules::labels::Label::Other);
     let live = sink.ranked(0);
     let kinds: Vec<(&str, u64)> = live.iter().map(|s| (s.kind, s.bytes)).collect();
     assert_eq!(kinds, vec![("rust-target", 500_000), ("node_modules", 300_000)]);

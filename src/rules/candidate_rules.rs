@@ -48,6 +48,10 @@ pub fn up(tree: &Tree, i: u32) -> u32 {
     if i == NONE { NONE } else { tree.node(i).parent }
 }
 
+fn is_system(tree: &Tree, i: u32) -> bool {
+    crate::rules::labels::Label::from_u8(tree.node(i).label) == crate::rules::labels::Label::System
+}
+
 fn has_child(tree: &Tree, dir: u32, name: &str) -> bool {
     dir != NONE && tree.children(dir).any(|c| tree.name(c).eq_ignore_ascii_case(name))
 }
@@ -62,6 +66,9 @@ const STALE_DAYS: u32 = 30;
 /// Unity Library\Bee is reported inside another suggestion).
 pub fn classify(tree: &Tree, i: u32, ao: &AoSessions, now: u32, inside: bool) -> Option<Rule> {
     use Confidence::*;
+    if is_system(tree, i) {
+        return None; // never suggest anything under Windows, Program Files, ...
+    }
     let name = lower(tree, i);
     let p = up(tree, i);
     let (pname, gp) = (lower(tree, p), up(tree, p));
@@ -129,6 +136,9 @@ fn ao_worktree(tree: &Tree, i: u32, ao: &AoSessions, now: u32) -> Option<Rule> {
 /// Folders inside AppData holding several version-named folders (CapCut\Apps\5.8.0.2216, ...):
 /// every version but the newest, with its reason.
 pub fn old_versions(tree: &Tree, dir: u32) -> Vec<(u32, String)> {
+    if is_system(tree, dir) {
+        return Vec::new();
+    }
     let versions: Vec<(Vec<u64>, u32)> = tree
         .children(dir)
         .filter(|&c| tree.node(c).is_dir())

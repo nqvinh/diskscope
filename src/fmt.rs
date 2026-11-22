@@ -128,3 +128,23 @@ mod tests {
 pub fn items(n: usize) -> String {
     if n == 1 { "1 item".into() } else { format!("{} items", count(n as u64)) }
 }
+
+/// Local date only, "2026-11-22"; empty for unknown.
+pub fn day(unix: u32) -> String {
+    date(unix).get(..10).unwrap_or("").to_string()
+}
+
+/// "today", "3 days ago", "5 months ago" (for tooltips).
+pub fn ago(unix: u32) -> String {
+    if unix == 0 {
+        return "unknown".into();
+    }
+    let d = now().saturating_sub(unix) / 86_400;
+    match d {
+        0 => "today".into(),
+        1 => "yesterday".into(),
+        2..=59 => format!("{d} days ago"),
+        60..=729 => format!("{} months ago", d / 30),
+        _ => format!("{} years ago", d / 365),
+    }
+}
