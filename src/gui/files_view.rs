@@ -10,7 +10,7 @@ use crate::fmt::{count, size};
 use crate::rules::labels::Label;
 use crate::views::ext_files::{select, totals, Query};
 use crate::views::sorting::{SortKey, SortState};
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, RichText, Ui};
 use egui_extras::{Column, TableBuilder};
 
 #[derive(Default)]
@@ -77,14 +77,14 @@ impl FilesView {
                 h.col(|ui| sort_header(ui, "Label", SortKey::Label, &mut sort));
             })
             .body(|body| {
-                body.rows(18.0, self.rows.len(), |mut row| {
+                body.rows(super::settings::row_h(), self.rows.len(), |mut row| {
                     let i = self.rows[row.index()];
                     let n = tree.node(i);
                     row.col(|ui| review_tick(ui, tree, i, review, "picked in Files", acts));
                     row.col(|ui| { ui.label(tree.name(i)); });
                     row.col(|ui| {
                         let folder = tree.path(n.parent).display().to_string();
-                        ui.label(RichText::new(&folder).color(Color32::GRAY)).on_hover_text(folder);
+                        ui.label(RichText::new(&folder).color(super::settings::dim())).on_hover_text(folder);
                     });
                     row.col(|ui| { ui.label(size(n.size)); });
                     row.col(|ui| date_cell(ui, n.modified, ""));

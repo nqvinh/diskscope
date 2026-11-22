@@ -32,8 +32,15 @@ diskscope shows where your disk space went: a folder tree, an extension table an
   - Folder rules such as `node_modules`, Rust `target`, a Unity `Library` or `steamapps` are inherited by their contents; other files are labelled by extension.
   - A **By label** view totals the size per label; click a label to list its biggest items.
   - Labels only describe content. They never select anything, and **System** items are never suggested for deletion.
+- **Friendly from the first screen.** Big drive cards show used/free space with a Scan button. Settings (gear icon) cover text size 12-24 pt (scales the whole window), System/Light/Dark theme, accent colour and compact/comfortable rows; changes apply live and are saved in `%LOCALAPPDATA%\diskscope\settings.json`.
+- **Extension drill-down.** Click an extension, or a group such as Video or Images, to list every file of that kind with path, size, dates and label. Ctrl+click adds more extensions. You can filter by name or path and by minimum size, sort, export to CSV, open the folder, or send rows to Review. It stays fast on millions of files thanks to a per-extension index of node ids.
 - **Sortable everywhere:** tree, suggestions, Review, History and every list. Click a header to sort, click again to flip; the default is size, largest first. The tree sorts one folder level at a time, so it stays instant on millions of items.
 - **Last-touch dates:** Last modified for every file and folder (a folder shows the newest change inside it) and Last accessed (the tooltip notes that Windows may not update access times), shown as dates with "N days ago" in the tooltip.
+- **Fast, safe deletes.**
+  - Permanent delete runs in parallel (32 threads); read-only files, long paths and links are handled, and links are removed, never followed.
+  - The Recycle Bin is a single Windows operation for the whole selection.
+  - Before running, diskscope warns if an item is bigger than that drive's Recycle Bin.
+  - Progress shows items, files, GB and an ETA, with Cancel; the window stays responsive.
 - **Review-first deletion.**
   - Nothing is ever ticked for you.
   - **Del** moves to the Recycle Bin. **Shift+Del** deletes permanently and requires typing `DELETE`.
@@ -53,6 +60,15 @@ Everything below was measured on one Windows 11 PC with an NVMe SSD (C:) on 2026
 | Peak working set | **494 MB** | 1,440 MB |
 
 Both runs were measured by the same script, which polled each process's OS-reported peak working set. WizTree's wall time includes its CSV export, so treat the time column as indicative and the memory column as the main comparison.
+
+### Delete speed (generated junk tree, before vs after v0.3.0)
+
+| Operation | v0.2.0 | v0.3.0 |
+|---|---|---|
+| Permanent delete: 200,000 small files in 10,000 folders + 3 × 200 MB | 20.2 s | 8.7 s (10.8 s through the full confirm → execute path) |
+| Recycle Bin: 500 selected folders with 10,000 files | 11.4 s | 3.6 s |
+
+Measured with `cargo test --release --test delete_bench -- --ignored --nocapture`, which only works under its own generated folder in `D:\tmp`. Run-to-run variation was about ±2 s for the permanent case.
 
 ### diskscope on its own
 
@@ -78,11 +94,17 @@ Get `diskscope.exe` from the [latest release](https://github.com/nqvinh/diskscop
    - **Delete permanently (Shift+Del)**: confirm, then type `DELETE`.
 5. Look back any time in **History**.
 
+![Home screen with drive cards](docs/images/home.png)
+
 ![Ranked cleanup suggestions with confidence levels and labels](docs/images/candidates.png)
+
+![Every file of the selected extensions (drill-down)](docs/images/files.png)
+
+![Light theme, Large text](docs/images/light-large.png)
 
 ![Size per automatic label, with the biggest items of the selected label](docs/images/labels.png)
 
-Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `history`, ...) opens a tab.
+Command line: `diskscope.exe <folder>` opens and scans a folder. `diskscope.exe <folder> --select <item>` also selects an item, and `--tab candidates` (or `labels`, `files`, `history`, ...) opens a tab, `--ext .mp4,.mkv` lists the files of those extensions, and `--settings <file>` uses another settings file.
 
 ## Run as administrator for the fast scan
 
@@ -130,13 +152,14 @@ cargo build --release        # Rust 1.95 is pinned in rust-toolchain.toml
 cargo test --release
 ```
 
-50 tests cover:
+56 tests cover:
 - the MFT record parser (on synthetic FILE records) and the tree builder
 - aggregation, the treemap layout and the blocklist
 - suggestion rules and ranking
 - the confirmation gate, Del / Shift+Del routing, and deleting only the listed items
 - small-file grouping, and junctions never being followed (on a real temporary folder)
 - history append and the 90-day prune
+- the extension index (totals match the table, union, filter, sort), parallel delete (read-only files, long paths, a junction inside the tree never followed, cancel) and settings round-trip
 - sort order (ascending/descending, ties), the folder last-modified roll-up, label rules on sample paths, and System items never being suggested
 
 ## License

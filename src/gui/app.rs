@@ -57,6 +57,9 @@ pub struct App {
     pending_ext: Option<String>,
     dialogs: Dialogs,
     toast: Option<(String, Instant)>,
+    settings: super::settings::Settings,
+    settings_path: Option<PathBuf>,
+    settings_open: bool,
     /// Item to select in the tree once the first scan finishes (`--select`).
     pending_select: Option<PathBuf>,
     /// Tab to open once the first scan finishes (`--tab`).
@@ -64,8 +67,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>, settings_path: Option<PathBuf>) -> Self {
+        let settings = super::settings::Settings::load(&settings_path);
+        settings.apply(&cc.egui_ctx);
         let _ = crate::cleanup::history::History::default_location().prune(crate::fmt::now());
         let mut app = Self {
             header: Header::new(initial.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "C:\\".into())),
@@ -86,6 +90,9 @@ impl App {
             pending_ext: ext,
             dialogs: Dialogs::default(),
             toast: None,
+            settings,
+            settings_path,
+            settings_open: false,
             pending_select: select,
             pending_tab: tab,
         };
@@ -147,7 +154,17 @@ impl eframe::App for App {
             self.scan_finished(loaded);
         }
         let mut acts = Vec::new();
-        let start = Panel::top("header").show(ui, |ui| self.header.ui(ui, &self.job, &self.data)).inner;
+        let mut start = Panel::top("header").show(ui, |ui| self.header.ui(ui, &self.job, &self.data, &mut self.settings_open)).inner;
+        if self.settings_open {
+            let mut open = true;
+            let mut changed = false;
+            egui::Window::new("Settings").open(&mut open).collapsible(false).resizable(false).show(ui.ctx(), |ui| changed = self.settings.ui(ui));
+            if changed {
+                self.settings.apply(ui.ctx());
+                self.settings.save(&self.settings_path);
+            }
+            self.settings_open = open;
+        }
         Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let (Some(d), Some(s)) = (&self.data, self.tree.selected) {
@@ -156,7 +173,7 @@ impl eframe::App for App {
                 if let Some((m, t)) = &self.toast {
                     if t.elapsed() < Duration::from_secs(6) {
                         ui.separator();
-                        ui.label(RichText::new(m).color(egui::Color32::from_rgb(140, 200, 255)));
+                        ui.label(RichText::new(m).color(ui.visuals().hyperlink_color).strong());
                     }
                 }
             });
@@ -189,10 +206,13 @@ impl eframe::App for App {
         } else {
             CentralPanel::default().show(ui, |ui| match self.job.as_ref().and_then(|j| j.progress.live.get().cloned()) {
                 Some(sink) => live_view::ui(ui, &sink, &self.review, &mut acts),
+                None if self.job.is_some() => {
+                    ui.centered_and_justified(|ui| ui.label("Starting the scan…"));
+                }
                 None => {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(if self.job.is_some() { "Starting…" } else { "Choose a drive or folder above and press Scan." });
-                    });
+                    if let Some(p) = super::home::ui(ui, self.header.drives(), self.header.elevated()) {
+                        start = Some(p);
+                    }
                 }
             });
         }

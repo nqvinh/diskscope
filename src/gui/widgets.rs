@@ -32,11 +32,12 @@ pub fn pct_bar(ui: &mut Ui, frac: f32) {
     let w = ui.available_width().max(40.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 14.0), Sense::hover());
     let p = ui.painter();
-    p.rect_filled(rect, 2.0, Color32::from_gray(45));
+    let dark = super::settings::is_dark();
+    p.rect_filled(rect, 2.0, Color32::from_gray(if dark { 45 } else { 225 }));
     let fill = Rect::from_min_size(rect.min, egui::vec2(rect.width() * frac.clamp(0.0, 1.0), rect.height()));
-    p.rect_filled(fill, 2.0, Color32::from_gray(110));
+    p.rect_filled(fill, 2.0, Color32::from_gray(if dark { 110 } else { 170 }));
     p.text(rect.right_center() - egui::vec2(3.0, 0.0), egui::Align2::RIGHT_CENTER, format!("{:.1} %", frac * 100.0),
-        egui::FontId::proportional(11.0), Color32::from_gray(235));
+        egui::FontId::proportional(11.0), Color32::from_gray(if dark { 235 } else { 20 }));
 }
 
 /// Small painted folder icon (the default fonts have no folder glyph).
@@ -127,7 +128,8 @@ pub fn sort_header(ui: &mut Ui, text: &str, key: crate::views::sorting::SortKey,
 pub fn label_chip(ui: &mut Ui, label: crate::rules::labels::Label) {
     let c = rgb(label.color());
     egui::Frame::new().fill(c.gamma_multiply(0.35)).stroke(egui::Stroke::new(1.0, c)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(5, 0)).show(ui, |ui| {
-        ui.label(egui::RichText::new(label.name()).small().color(egui::Color32::WHITE));
+        let text = if super::settings::is_dark() { egui::Color32::WHITE } else { egui::Color32::from_gray(20) };
+        ui.label(egui::RichText::new(label.name()).small().color(text));
     });
 }
 
@@ -141,3 +143,14 @@ pub fn date_cell(ui: &mut Ui, unix: u32, note: &str) {
 }
 
 pub const ACCESS_NOTE: &str = "Windows may not update last-access times (NTFS setting), so this can be older than real use";
+
+/// Small painted gear icon (the default fonts have no gear glyph).
+pub fn gear_icon(ui: &Ui, center: egui::Pos2, r: f32, c: Color32) {
+    let p = ui.painter();
+    for k in 0..8 {
+        let a = k as f32 * std::f32::consts::TAU / 8.0;
+        let d = egui::vec2(a.cos(), a.sin());
+        p.line_segment([center + d * (r * 0.55), center + d * r], egui::Stroke::new(r * 0.38, c));
+    }
+    p.circle_stroke(center, r * 0.55, egui::Stroke::new(r * 0.3, c));
+}

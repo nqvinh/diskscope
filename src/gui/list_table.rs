@@ -25,7 +25,7 @@ pub struct ListRow {
 /// `heads` = [amount, extra, note] column titles.
 pub fn ui(ui: &mut Ui, id: &str, data: &Loaded, rows: &[ListRow], heads: [&str; 3], review: &ReviewList, acts: &mut Vec<Act>) {
     if rows.is_empty() {
-        ui.weak("Nothing matches.");
+        ui.label("Nothing here yet. Try a longer time span, another folder or a different filter.");
         return;
     }
     let tree = &data.tree;
@@ -63,7 +63,7 @@ pub fn ui(ui: &mut Ui, id: &str, data: &Loaded, rows: &[ListRow], heads: [&str; 
             h.col(|ui| { ui.label(RichText::new(heads[2]).strong()); });
         })
         .body(|body| {
-            body.rows(18.0, order.len(), |mut row| {
+            body.rows(super::settings::row_h(), order.len(), |mut row| {
                 let r = &rows[order[row.index()]];
                 let path = tree.path(r.node).display().to_string();
                 row.col(|ui| review_tick(ui, tree, r.node, review, if r.note.is_empty() { "picked in list" } else { &r.note }, acts));

@@ -10,7 +10,7 @@ use crate::cleanup::request::DeleteRequest;
 use crate::cleanup::execute::{execute, ItemResult, Outcome};
 use crate::cleanup::review::ReviewList;
 use crate::fmt::size;
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, RichText, Ui};
 use crate::cleanup::fast_delete::DeleteProgress;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ impl Default for Dialogs {
     }
 }
 
-const WARN: Color32 = Color32::from_rgb(255, 150, 90);
+use super::settings::warn;
 
 fn path_list(ui: &mut Ui, review: &ReviewList) {
     egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(ui, |ui| {
@@ -105,19 +105,19 @@ impl Dialogs {
                     ui.heading(title);
                     path_list(ui, review);
                     for w in &self.bin_warnings {
-                        ui.colored_label(WARN, w);
+                        ui.colored_label(warn(), w);
                     }
                     if permanent {
-                        ui.colored_label(WARN, "Permanent delete cannot be undone. A second confirmation follows.");
+                        ui.colored_label(warn(), "Permanent delete cannot be undone. A second confirmation follows.");
                     } else {
-                        ui.colored_label(WARN, format!(
+                        ui.colored_label(warn(), format!(
                             "Moving to the Recycle Bin does NOT free disk space until the bin is emptied (it holds {} now). \
                              Items too big for the bin are skipped, never deleted permanently.",
                             recycle_bytes.map(size).unwrap_or_else(|| "an unknown amount".into())));
                     }
                     ui.label("Files that are in use are skipped and listed afterwards. Every action is logged.");
                     ui.checkbox(reviewed, "I reviewed every path in this list");
-                    if let Some(e) = &self.error { ui.colored_label(WARN, e); }
+                    if let Some(e) = &self.error { ui.colored_label(warn(), e); }
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() { next = Some(Stage::Closed); }
                         let label = if permanent { "Continue to permanent delete…" } else { "Move to Recycle Bin" };
@@ -134,14 +134,14 @@ impl Dialogs {
             Stage::Second { typed } => {
                 egui::Modal::new(egui::Id::unique("confirm-2")).show(ctx, |ui| {
                     ui.set_width(520.0);
-                    ui.heading(RichText::new(format!("Second confirmation: delete {n} ({total}) for good")).color(WARN));
+                    ui.heading(RichText::new(format!("Second confirmation: delete {n} ({total}) for good")).color(warn()));
                     ui.label(format!("This skips the Recycle Bin and cannot be undone. Type {PERMANENT_WORD} to continue."));
                     ui.add(egui::TextEdit::singleline(typed).hint_text(PERMANENT_WORD));
-                    if let Some(e) = &self.error { ui.colored_label(WARN, e); }
+                    if let Some(e) = &self.error { ui.colored_label(warn(), e); }
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() { next = Some(Stage::Closed); }
                         let ok = typed.trim() == PERMANENT_WORD;
-                        if ui.add_enabled(ok, egui::Button::new(RichText::new("Delete permanently").color(WARN).strong())).clicked() {
+                        if ui.add_enabled(ok, egui::Button::new(RichText::new("Delete permanently").color(warn()).strong())).clicked() {
                             match confirm_permanent(review, true, true, typed) { Ok(p) => plan = Some(p), Err(e) => self.error = Some(e.to_string()) }
                         }
                     });
@@ -181,7 +181,7 @@ impl Dialogs {
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         for o in out.iter() {
                             if let ItemResult::Skipped(why) = &o.result {
-                                ui.colored_label(WARN, format!("skipped {}: {why}", o.path.display()));
+                                ui.colored_label(warn(), format!("skipped {}: {why}", o.path.display()));
                             }
                         }
                     });

@@ -14,10 +14,12 @@ fn item(s: &LiveSuggestion) -> ReviewItem {
 }
 
 pub fn confidence_color(c: Confidence) -> Color32 {
-    match c {
-        Confidence::Safe => Color32::from_rgb(120, 210, 130),
-        Confidence::Likely => Color32::from_rgb(230, 200, 100),
-        Confidence::Check => Color32::from_rgb(240, 140, 100),
+    match (c, super::settings::is_dark()) {
+        (Confidence::Safe, true) => Color32::from_rgb(120, 210, 130),
+        (Confidence::Safe, false) => Color32::from_rgb(20, 120, 50),
+        (Confidence::Likely, true) => Color32::from_rgb(230, 200, 100),
+        (Confidence::Likely, false) => Color32::from_rgb(140, 100, 0),
+        (Confidence::Check, _) => super::settings::warn(),
     }
 }
 
@@ -70,7 +72,7 @@ pub fn ui(ui: &mut Ui, sink: &LiveSink, review: &ReviewList, acts: &mut Vec<Act>
             h.col(|ui| { ui.label(RichText::new("Why").strong()); });
         })
         .body(|body| {
-            body.rows(18.0, list.len(), |mut row| {
+            body.rows(super::settings::row_h(), list.len(), |mut row| {
                 let s = &list[row.index()];
                 let listed = review.contains(&s.path);
                 row.col(|ui| {

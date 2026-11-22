@@ -107,7 +107,7 @@ impl TreeView {
                 }
             })
             .body(|body| {
-                body.rows(18.0, self.rows.len(), |mut row| {
+                body.rows(super::settings::row_h(), self.rows.len(), |mut row| {
                     let (i, depth) = self.rows[row.index()];
                     let n = *tree.node(i);
                     row.set_selected(self.selected == Some(i));
@@ -129,7 +129,7 @@ impl TreeView {
                         }
                         let mut t = RichText::new(tree.name(i));
                         if n.is_denied() { t = t.color(Color32::from_rgb(230, 110, 90)); }
-                        if n.is_reparse() || n.is_group() { t = t.italics().color(Color32::GRAY); }
+                        if n.is_reparse() || n.is_group() { t = t.italics().color(super::settings::dim()); }
                         let tip = if n.is_denied() { "access denied: not scanned" } else if n.is_reparse() { "link / junction / mount point: not followed" } else { "" };
                         let l = ui.label(t);
                         if !tip.is_empty() { l.on_hover_text(tip); }

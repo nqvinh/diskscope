@@ -8,11 +8,13 @@ mod files_view;
 mod header;
 mod labels_view;
 mod history_view;
+mod home;
 mod list_table;
 mod live_view;
 mod lists;
 mod loaded;
 mod review_view;
+mod settings;
 mod tree_view;
 mod treemap_view;
 mod widgets;
@@ -21,7 +23,7 @@ use eframe::egui;
 use std::path::PathBuf;
 
 /// Opens the window; scans `initial` right away when given.
-pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>) -> eframe::Result {
+pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String>, ext: Option<String>, settings: Option<PathBuf>) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1500.0, 950.0])
@@ -29,5 +31,5 @@ pub fn run(initial: Option<PathBuf>, select: Option<PathBuf>, tab: Option<String
             .with_title("diskscope"),
         ..Default::default()
     };
-    eframe::run_native("diskscope", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, initial, select, tab, ext)))))
+    eframe::run_native("diskscope", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, initial, select, tab, ext, settings)))))
 }

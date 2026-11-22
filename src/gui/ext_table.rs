@@ -44,7 +44,7 @@ pub fn ui(ui: &mut Ui, data: &Loaded, selected: &[u16], acts: &mut Vec<Act>) {
             }
         })
         .body(|body| {
-            body.rows(18.0, data.ext_stats.len(), |mut row| {
+            body.rows(super::settings::row_h(), data.ext_stats.len(), |mut row| {
                 let s = &data.ext_stats[row.index()];
                 let ext = &data.tree.exts[s.ext as usize];
                 row.set_selected(selected.contains(&s.ext));

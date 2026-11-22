@@ -37,10 +37,25 @@ impl Header {
     }
 
     /// Returns a path when the user asked to start a scan.
-    pub fn ui(&mut self, ui: &mut Ui, job: &Option<ScanJob>, data: &Option<Loaded>) -> Option<PathBuf> {
+    pub fn drives(&self) -> &[Drive] {
+        &self.drives
+    }
+
+    pub fn elevated(&self) -> bool {
+        self.elevated
+    }
+
+    /// Returns a path when the user asked to start a scan. `settings_open` toggles the settings window.
+    pub fn ui(&mut self, ui: &mut Ui, job: &Option<ScanJob>, data: &Option<Loaded>, settings_open: &mut bool) -> Option<PathBuf> {
         self.refresh();
         let mut start = None;
         ui.horizontal(|ui| {
+            let gear = ui.add(egui::Button::new("      Settings")).on_hover_text("Text size, theme, colours, row height");
+            super::widgets::gear_icon(ui, gear.rect.left_center() + egui::vec2(14.0, 0.0), 7.0, ui.visuals().text_color());
+            if gear.clicked() {
+                *settings_open = !*settings_open;
+            }
+            ui.separator();
             ui.label("Scan:");
             egui::ComboBox::from_id_salt("drive").selected_text("Drive").width(70.0).show_ui(ui, |ui| {
                 for d in &self.drives {
@@ -86,10 +101,12 @@ impl Header {
         if let Some(j) = job {
             let p = &j.progress;
             ui.spinner();
+            let secs = j.started.elapsed().as_secs_f64().max(0.1);
+            let items = p.files.load(Relaxed) + p.dirs.load(Relaxed);
             ui.label(format!(
-                "scanning {}: {} files, {} folders, {}, {} denied, {:.0} s",
-                j.path.display(), count(p.files.load(Relaxed)), count(p.dirs.load(Relaxed)),
-                size(p.bytes.load(Relaxed)), p.denied.load(Relaxed), j.started.elapsed().as_secs_f32()
+                "Scanning {}: {} items ({} items/s), {}, {} folders could not be read, {:.0} s. Cancel stops it.",
+                j.path.display(), count(items), count((items as f64 / secs) as u64),
+                size(p.bytes.load(Relaxed)), p.denied.load(Relaxed), secs
             ));
         } else if let Some(d) = data {
             let t = &d.tree;

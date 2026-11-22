@@ -63,7 +63,7 @@ pub fn buttons(ui: &mut Ui, t: &Targets, acts: &mut Vec<Act>) {
         }
         ui.add_space(12.0);
         let txt = RichText::new(t.summary()).size(15.0).strong();
-        ui.label(if on { txt.color(Color32::from_rgb(255, 210, 140)) } else { txt.weak() });
+        ui.label(if on { txt.color(if super::settings::is_dark() { Color32::from_rgb(255, 210, 140) } else { Color32::from_rgb(140, 60, 0) }) } else { txt.weak() });
     });
 }
 

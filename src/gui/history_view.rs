@@ -72,6 +72,9 @@ impl HistoryView {
         });
         let rows: Vec<HistoryEntry> = self.visible().into_iter().cloned().collect();
         let recycled_ok = rows.iter().filter(|e| e.mode == "recycle" && e.result == "ok").count();
+        if rows.is_empty() {
+            ui.label(format!("No deletions in the last {} days. Everything you delete with diskscope will be listed here.", self.days));
+        }
         ui.weak(format!("{} actions shown; kept for {KEEP_DAYS} days. {recycled_ok} recycled items can still be restored from the Recycle Bin until it is emptied.", rows.len()));
         TableBuilder::new(ui)
             .id_salt("history")
@@ -94,12 +97,13 @@ impl HistoryView {
                 h.col(|ui| { ui.label(RichText::new("Error / note").strong()); });
             })
             .body(|body| {
-                body.rows(18.0, rows.len(), |mut row| {
+                body.rows(super::settings::row_h(), rows.len(), |mut row| {
                     let e = &rows[row.index()];
                     row.col(|ui| { ui.label(&e.at); });
                     row.col(|ui| { ui.label(&e.mode); });
                     row.col(|ui| {
-                        let c = match e.result.as_str() { "ok" => Color32::from_rgb(120, 210, 130), "skipped" => Color32::GRAY, _ => Color32::from_rgb(240, 120, 100) };
+                        let dark = super::settings::is_dark();
+                        let c = match (e.result.as_str(), dark) { ("ok", true) => Color32::from_rgb(120, 210, 130), ("ok", false) => Color32::from_rgb(20, 120, 50), ("skipped", _) => super::settings::dim(), _ => super::settings::warn() };
                         ui.colored_label(c, &e.result);
                     });
                     row.col(|ui| { ui.label(size(e.size)); });
