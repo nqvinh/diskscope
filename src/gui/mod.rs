@@ -15,6 +15,7 @@ mod lists;
 mod loaded;
 mod review_view;
 mod settings;
+mod tree_columns;
 mod tree_view;
 mod treemap_view;
 mod widgets;

@@ -112,14 +112,17 @@ impl Header {
             let t = &d.tree;
             let r = t.node(0);
             let done = if t.cancelled { "Scan CANCELLED (partial)" } else { "Scan complete" };
-            let how = if t.method == "ntfs-mft" { "fast NTFS (MFT)".to_string() } else if t.method_note.is_empty() { "directory walk".into() } else { format!("directory walk ({})", t.method_note) };
-            ui.label(format!(
-                "{done} in {:.1} s ({how}): {} files, {} items, {} denied folders, {} links not followed",
-                t.elapsed_ms as f64 / 1000.0, count(r.files as u64), count(r.items as u64), t.denied, t.reparse_skipped
-            ))
-            .on_hover_text(if t.denied_paths.is_empty() { "no access-denied folders".to_string() } else {
-                format!("Access denied (first {}):\n{}", t.denied_paths.len().min(30), t.denied_paths.iter().take(30).cloned().collect::<Vec<_>>().join("\n"))
-            });
+            let how = if t.method == "ntfs-mft" { "fast NTFS scan".to_string() } else if t.method_note.is_empty() { "folder scan".into() } else { format!("folder scan; {}", t.method_note.to_lowercase()) };
+            let took = if t.elapsed_ms < 1000 { format!("{} ms", t.elapsed_ms) } else { format!("{:.1} s", t.elapsed_ms as f64 / 1000.0) };
+            let text = format!(
+                "{done} in {took} · {} files, {} items · {} denied folders · {} links not followed · {how}",
+                count(r.files as u64), count(r.items as u64), t.denied, t.reparse_skipped
+            );
+            let denied = if t.denied_paths.is_empty() { String::new() } else {
+                format!("\n\nAccess denied (first {}):\n{}", t.denied_paths.len().min(30), t.denied_paths.iter().take(30).cloned().collect::<Vec<_>>().join("\n"))
+            };
+            // Truncated with "…" when the window is narrow; the full text is in the tooltip.
+            ui.add(egui::Label::new(text.clone()).truncate()).on_hover_text(format!("{text}{denied}"));
         } else {
             ui.label("Pick a drive or folder and press Scan. Nothing is ever deleted without your review.");
         }

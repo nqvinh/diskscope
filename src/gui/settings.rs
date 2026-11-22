@@ -34,17 +34,21 @@ impl Accent {
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+#[serde(default)] // fields missing in older settings files take their default
 pub struct Settings {
     /// Base text size in points (12-24); 14 = Normal.
     pub font: f32,
     pub theme: Theme,
     pub accent: Accent,
     pub comfortable: bool,
+    /// Tree columns the user hid (bit mask, see tree_columns).
+    pub tree_hidden: u16,
+    pub show_extensions: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { font: 14.0, theme: Theme::System, accent: Accent::Blue, comfortable: false }
+        Self { font: 14.0, theme: Theme::System, accent: Accent::Blue, comfortable: false, tree_hidden: 0, show_extensions: true }
     }
 }
 
@@ -158,9 +162,12 @@ fn settings_round_trip_and_defaults() {
     let f = std::env::temp_dir().join(format!("diskscope-settings-{}.json", std::process::id()));
     let over = Some(f.clone());
     assert_eq!(Settings::load(&over), Settings::default(), "missing file = defaults");
-    let s = Settings { font: 20.0, theme: Theme::Light, accent: Accent::Green, comfortable: true };
+    let s = Settings { font: 20.0, theme: Theme::Light, accent: Accent::Green, comfortable: true, tree_hidden: 0b100, show_extensions: false };
     s.save(&over);
     assert_eq!(Settings::load(&over), s);
+    std::fs::write(&f, r#"{"font":17.0,"theme":"Dark","accent":"Blue","comfortable":false}"#).unwrap();
+    let old = Settings::load(&over);
+    assert_eq!((old.font, old.tree_hidden, old.show_extensions), (17.0, 0, true), "a v0.3.0 file loads; new fields default");
     std::fs::write(&f, "not json").unwrap();
     assert_eq!(Settings::load(&over), Settings::default(), "a broken file falls back to defaults");
     std::fs::remove_file(&f).ok();

@@ -121,7 +121,7 @@ impl App {
     }
 
     fn tabs(&mut self, ui: &mut Ui, data: &Loaded) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (t, label) in [
                 (Tab::Tree, "Tree".to_string()),
                 (Tab::Recent, "Recent".into()),
@@ -141,6 +141,10 @@ impl App {
                     RichText::new(label).strong()
                 };
                 ui.selectable_value(&mut self.tab, t, text);
+            }
+            if !self.settings.show_extensions && ui.small_button("Show extension list").clicked() {
+                self.settings.show_extensions = true;
+                self.settings.save(&self.settings_path);
             }
         });
         ui.separator();
@@ -186,11 +190,28 @@ impl eframe::App for App {
             Panel::bottom("treemap").resizable(true).default_size(320.0).min_size(120.0).show(ui, |ui| {
                 self.map.ui(ui, &data, self.tree.selected, &mut acts);
             });
-            Panel::right("extensions").resizable(true).default_size(330.0).show(ui, |ui| ext_table::ui(ui, &data, &self.ext_sel, &mut acts));
+            if self.settings.show_extensions {
+                // Bigger text = narrower extension list, so the tree keeps its columns.
+                let share = if self.settings.font <= 14.0 { 0.30 } else if self.settings.font <= 17.0 { 0.21 } else { 0.18 };
+                let max = (ui.available_width() * share).max(180.0);
+                let mut hide = false;
+                Panel::right("extensions").resizable(true).min_size(180.0).default_size(max.min(330.0)).max_size(max).show(ui, |ui| {
+                    hide = ui.small_button("Hide this list").on_hover_text("more room for the tree; bring it back from the tab bar").clicked();
+                    egui::ScrollArea::horizontal().id_salt("ext-h").auto_shrink([false, false]).show(ui, |ui| ext_table::ui(ui, &data, &self.ext_sel, &mut acts));
+                });
+                if hide {
+                    self.settings.show_extensions = false;
+                    self.settings.save(&self.settings_path);
+                }
+            }
             CentralPanel::default().show(ui, |ui| {
                 self.tabs(ui, &data);
                 match self.tab {
-                    Tab::Tree => self.tree.ui(ui, &data, &self.review, &mut acts),
+                    Tab::Tree => {
+                        if self.tree.ui(ui, &data, &self.review, &mut self.settings.tree_hidden, &mut acts) {
+                            self.settings.save(&self.settings_path);
+                        }
+                    }
                     Tab::Recent => self.recent.ui_recent(ui, &data, &self.review, &mut acts),
                     Tab::LeastUsed => self.least.ui_least_used(ui, &data, &self.review, &mut acts),
                     Tab::Grew => self.grew.ui(ui, &data, &self.review, &mut acts),
