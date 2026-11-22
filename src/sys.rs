@@ -178,6 +178,28 @@ pub fn filesystem_name(root: &str) -> Option<String> {
     (ok != 0).then(|| String::from_utf16_lossy(&fs[..end]))
 }
 
+/// Recycle Bin limits of the volume holding `root` (`C:\`): (max bytes, bin turned off). None when
+/// Windows has no per-volume setting stored for this user.
+pub fn recycle_capacity(root: &str) -> Option<(u64, bool)> {
+    use windows_sys::Win32::Storage::FileSystem::GetVolumeNameForVolumeMountPointW;
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let w = wide(root);
+    let mut buf = [0u16; 64];
+    if unsafe { GetVolumeNameForVolumeMountPointW(w.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } == 0 {
+        return None;
+    }
+    let vol = String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)]);
+    let guid = vol.split('{').nth(1)?.split('}').next()?;
+    let key = wide(&format!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\BitBucket\\Volume\\{{{guid}}}"));
+    let read = |name: &str| -> Option<u32> {
+        let (n, mut data, mut len) = (wide(name), 0u32, 4u32);
+        let rc = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), n.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), &mut data as *mut u32 as *mut _, &mut len) };
+        (rc == 0).then_some(data)
+    };
+    let max_mb = read("MaxCapacity")?;
+    Some((max_mb as u64 * (1 << 20), read("NukeOnDelete").unwrap_or(0) != 0))
+}
+
 /// %LOCALAPPDATA%\diskscope (snapshots, action log).
 pub fn data_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);

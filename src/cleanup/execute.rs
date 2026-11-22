@@ -3,6 +3,9 @@
 
 use super::action_log::ActionLog;
 use super::confirm::{ConfirmedPlan, Mode};
+use super::fast_delete::{remove_file_force, remove_tree, DeleteProgress};
+use std::os::windows::fs::MetadataExt;
+use std::sync::atomic::Ordering::Relaxed;
 use crate::rules::blocklist::blocked_reason;
 use std::path::{Path, PathBuf};
 
@@ -19,52 +22,82 @@ pub struct Outcome {
     pub result: ItemResult,
 }
 
-/// Executes `plan` (consumed: a plan runs once). `on_item` gets the index of each finished item.
-pub fn execute(plan: ConfirmedPlan, log: &ActionLog, mut on_item: impl FnMut(usize, &Outcome)) -> Vec<Outcome> {
-    let action = match plan.mode() {
-        Mode::RecycleBin => "recycle",
-        Mode::Permanent => "delete-permanent",
-    };
-    let mut out = Vec::with_capacity(plan.items().len());
-    for (k, it) in plan.items().iter().enumerate() {
-        let result = run_one(&it.path, it.is_dir, plan.mode());
-        let (res, detail) = match &result {
-            ItemResult::Done => ("done", String::new()),
-            ItemResult::Skipped(why) => ("skipped", why.clone()),
-        };
-        log.record(action, &it.path, it.size, res, &detail);
-        let o = Outcome { path: it.path.clone(), size: it.size, result };
-        on_item(k, &o);
-        out.push(o);
+/// Executes `plan` (consumed: a plan runs once). Recycle Bin: one batched Windows operation for
+/// every valid item, then each item is verified. Permanent: item by item with the parallel tree
+/// delete; Cancel (in `progress`) is honoured between items and between files.
+pub fn execute(plan: ConfirmedPlan, log: &ActionLog, progress: &DeleteProgress) -> Vec<Outcome> {
+    let mode = plan.mode();
+    let items = plan.items();
+    let mut results: Vec<Option<ItemResult>> = items.iter().map(|it| precheck(&it.path, it.is_dir).err().map(ItemResult::Skipped)).collect();
+    match mode {
+        Mode::RecycleBin => {
+            let ok: Vec<&PathBuf> = items.iter().zip(&results).filter(|(_, r)| r.is_none()).map(|(it, _)| &it.path).collect();
+            if !ok.is_empty() && trash::delete_all(&ok).is_err() {
+                // The batch failed as a whole: retry one by one so each item gets its own reason.
+                for (it, r) in items.iter().zip(results.iter_mut()).filter(|(_, r)| r.is_none()) {
+                    if let Err(e) = trash::delete(&it.path) {
+                        *r = Some(ItemResult::Skipped(explain_trash(&e)));
+                    }
+                }
+            }
+            progress.items_done.store(items.len() as u64, Relaxed);
+        }
+        Mode::Permanent => {
+            for (it, r) in items.iter().zip(results.iter_mut()) {
+                if r.is_none() {
+                    *r = if progress.cancel.load(Relaxed) {
+                        Some(ItemResult::Skipped("cancelled before this item".into()))
+                    } else {
+                        delete_permanently(&it.path, progress).err().map(ItemResult::Skipped)
+                    };
+                }
+                progress.items_done.fetch_add(1, Relaxed);
+            }
+        }
     }
-    out
+    let action = if mode == Mode::RecycleBin { "recycle" } else { "delete-permanent" };
+    items
+        .iter()
+        .zip(results)
+        .map(|(it, r)| {
+            // The shell can report success while skipping an item (e.g. too big for the bin): verify.
+            let result = r.unwrap_or_else(|| {
+                if std::fs::symlink_metadata(&it.path).is_ok() { ItemResult::Skipped("still there after the operation (skipped by Windows)".into()) } else { ItemResult::Done }
+            });
+            let (res, detail) = match &result { ItemResult::Done => ("done", String::new()), ItemResult::Skipped(w) => ("skipped", w.clone()) };
+            log.record(action, &it.path, it.size, res, &detail);
+            Outcome { path: it.path.clone(), size: it.size, result }
+        })
+        .collect()
 }
 
-fn run_one(path: &Path, is_dir: bool, mode: Mode) -> ItemResult {
+fn precheck(path: &Path, is_dir: bool) -> Result<(), String> {
     if let Some(why) = blocked_reason(path) {
-        return ItemResult::Skipped(format!("protected: {why}"));
+        return Err(format!("protected: {why}"));
     }
-    let Ok(md) = std::fs::symlink_metadata(path) else {
-        return ItemResult::Skipped("not found (already gone?)".into());
-    };
-    if md.is_dir() != is_dir {
-        return ItemResult::Skipped("changed since the scan (file/folder type differs)".into());
+    let md = std::fs::symlink_metadata(path).map_err(|_| "not found (already gone?)".to_string())?;
+    if md.is_dir() != is_dir && !md.file_type().is_symlink() {
+        return Err("changed since the scan (file/folder type differs)".into());
     }
-    let r = match mode {
-        Mode::RecycleBin => trash::delete(path).map_err(|e| explain_trash(&e)),
-        Mode::Permanent if md.is_dir() && !md.file_type().is_symlink() => std::fs::remove_dir_all(path).map_err(|e| explain(&e)),
-        Mode::Permanent if md.is_dir() => std::fs::remove_dir(path).map_err(|e| explain(&e)),
-        Mode::Permanent => std::fs::remove_file(path).map_err(|e| explain(&e)),
-    };
-    match r {
-        // The shell can report success while skipping an item (e.g. too big for the bin): verify.
-        Ok(()) if std::fs::symlink_metadata(path).is_ok() => ItemResult::Skipped("still there after the operation (skipped by Windows)".into()),
-        Ok(()) => ItemResult::Done,
-        Err(why) => ItemResult::Skipped(why),
-    }
+    Ok(())
 }
 
-fn explain(e: &std::io::Error) -> String {
+fn delete_permanently(path: &Path, progress: &DeleteProgress) -> Result<(), String> {
+    let md = std::fs::symlink_metadata(path).map_err(|e| explain(&e))?;
+    if md.file_type().is_symlink() || md.file_attributes() & 0x400 != 0 {
+        // A link: remove the link itself, never what it points to.
+        return if md.is_dir() || md.file_attributes() & 0x10 != 0 { std::fs::remove_dir(path) } else { std::fs::remove_file(path) }.map_err(|e| explain(&e));
+    }
+    if md.is_dir() {
+        remove_tree(path, progress)
+    } else {
+        remove_file_force(path).map_err(|e| explain(&e))?;
+        progress.files_done.fetch_add(1, Relaxed);
+        progress.bytes_done.fetch_add(md.len(), Relaxed);
+        Ok(())
+    }
+}
+pub fn explain(e: &std::io::Error) -> String {
     match e.raw_os_error() {
         Some(32) | Some(33) => "in use by another program".into(),
         Some(5) => "access denied".into(),
@@ -102,7 +135,7 @@ mod tests {
         assert!(confirm_recycle(&list, false).is_err(), "no plan without the review tick");
         let plan = confirm_permanent(&list, true, true, "DELETE").unwrap();
         let log = ActionLog::new(base.join("log"));
-        let out = execute(plan, &log, |_, _| {});
+        let out = execute(plan, &log, &DeleteProgress::default());
         assert_eq!(out[0].result, ItemResult::Done);
         assert!(matches!(out[1].result, ItemResult::Skipped(_)));
         assert!(!gone.exists() && keep.exists());

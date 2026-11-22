@@ -5,6 +5,7 @@ pub mod action_log;
 pub mod confirm;
 pub mod execute;
 pub mod export;
+pub mod fast_delete;
 pub mod history;
 pub mod request;
 pub mod review;

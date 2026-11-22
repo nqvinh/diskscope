@@ -11,7 +11,8 @@ use crate::cleanup::execute::{execute, ItemResult, Outcome};
 use crate::cleanup::review::ReviewList;
 use crate::fmt::size;
 use eframe::egui::{self, Color32, RichText, Ui};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use crate::cleanup::fast_delete::DeleteProgress;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -19,7 +20,7 @@ pub enum Stage {
     Closed,
     First { permanent: bool, reviewed: bool },
     Second { typed: String },
-    Running { done: Arc<AtomicUsize>, total: usize, handle: Option<JoinHandle<Vec<Outcome>>> },
+    Running { progress: Arc<DeleteProgress>, total: usize, total_bytes: u64, recycle: bool, started: std::time::Instant, handle: Option<JoinHandle<Vec<Outcome>>> },
     Results(Vec<Outcome>),
 }
 
@@ -28,11 +29,13 @@ pub struct Dialogs {
     error: Option<String>,
     /// Exactly what this dialog would delete (the selection or the whole review list).
     target: ReviewList,
+    /// Recycle Bin warnings found when the dialog opened (item bigger than the bin, bin off).
+    bin_warnings: Vec<String>,
 }
 
 impl Default for Dialogs {
     fn default() -> Self {
-        Self { stage: Stage::Closed, error: None, target: ReviewList::default() }
+        Self { stage: Stage::Closed, error: None, target: ReviewList::default(), bin_warnings: Vec::new() }
     }
 }
 
@@ -54,6 +57,7 @@ impl Dialogs {
         self.stage = Stage::First { permanent: req.mode == Mode::Permanent, reviewed: false };
         self.target = req.list;
         self.error = None;
+        self.bin_warnings = if req.mode == Mode::RecycleBin { bin_warnings(&self.target) } else { Vec::new() };
     }
 
     pub fn is_open(&self) -> bool {
@@ -61,13 +65,15 @@ impl Dialogs {
     }
 
     fn run(&mut self, plan: ConfirmedPlan) {
-        let done = Arc::new(AtomicUsize::new(0));
+        let progress = Arc::new(DeleteProgress::default());
         let total = plan.items().len();
-        let d = done.clone();
+        let total_bytes: u64 = plan.items().iter().map(|i| i.size).sum();
+        let recycle = plan.mode() == Mode::RecycleBin;
+        let d = progress.clone();
         let mode = if plan.mode() == Mode::Permanent { "permanent" } else { "recycle" };
         let items: Vec<u64> = plan.items().iter().map(|i| i.items).collect();
         let handle = std::thread::spawn(move || {
-            let out = execute(plan, &ActionLog::default_location(), |k, _| d.store(k + 1, Relaxed));
+            let out = execute(plan, &ActionLog::default_location(), &d);
             let now = crate::fmt::now();
             let entries: Vec<HistoryEntry> = out.iter().zip(items).map(|(o, items)| {
                 let why = match &o.result { ItemResult::Skipped(w) => Some(w.as_str()), ItemResult::Done => None };
@@ -79,7 +85,7 @@ impl Dialogs {
             }
             out
         });
-        self.stage = Stage::Running { done, total, handle: Some(handle) };
+        self.stage = Stage::Running { progress, total, total_bytes, recycle, started: std::time::Instant::now(), handle: Some(handle) };
     }
 
     /// Shows the active dialog. Returns the outcomes once a delete job has finished.
@@ -98,6 +104,9 @@ impl Dialogs {
                     let title = if permanent { format!("Permanently delete {n} ({total})?") } else { format!("Move {n} ({total}) to the Recycle Bin?") };
                     ui.heading(title);
                     path_list(ui, review);
+                    for w in &self.bin_warnings {
+                        ui.colored_label(WARN, w);
+                    }
                     if permanent {
                         ui.colored_label(WARN, "Permanent delete cannot be undone. A second confirmation follows.");
                     } else {
@@ -138,11 +147,24 @@ impl Dialogs {
                     });
                 });
             }
-            Stage::Running { done, total, handle } => {
-                let (k, t) = (done.load(Relaxed), *total);
+            Stage::Running { progress, total, total_bytes, recycle, started, handle } => {
+                let (k, t) = (progress.items_done.load(Relaxed) as usize, *total);
+                let (files, bytes) = (progress.files_done.load(Relaxed), progress.bytes_done.load(Relaxed));
+                let secs = started.elapsed().as_secs_f64();
                 egui::Modal::new(egui::Id::unique("running")).show(ctx, |ui| {
-                    ui.heading("Cleaning up…");
-                    ui.add(egui::ProgressBar::new(k as f32 / t.max(1) as f32).text(format!("{k} / {t}")));
+                    ui.set_width(520.0);
+                    if *recycle {
+                        ui.heading(format!("Moving {t} items to the Recycle Bin…"));
+                        ui.horizontal(|ui| { ui.spinner(); ui.label(format!("one Windows operation for the whole selection · {secs:.0} s")); });
+                    } else {
+                        ui.heading("Deleting permanently…");
+                        let frac = if *total_bytes > 0 { bytes as f32 / *total_bytes as f32 } else { k as f32 / t.max(1) as f32 };
+                        let eta = if bytes > 0 && *total_bytes > bytes { format!(", about {:.0} s left", secs * (*total_bytes - bytes) as f64 / bytes as f64) } else { String::new() };
+                        ui.add(egui::ProgressBar::new(frac.min(1.0)).text(format!("{k} / {t} items · {} files · {} of {}{eta}", crate::fmt::count(files), size(bytes), size(*total_bytes))));
+                        if ui.button("Cancel").on_hover_text("Stops after the files being deleted right now; what is already deleted stays deleted").clicked() {
+                            progress.cancel.store(true, Relaxed);
+                        }
+                    }
                 });
                 if handle.as_ref().is_some_and(|h| h.is_finished()) {
                     let out = handle.take().and_then(|h| h.join().ok()).unwrap_or_default();
@@ -176,4 +198,20 @@ impl Dialogs {
         }
         finished
     }
+}
+
+/// Items that Windows would refuse to recycle (bigger than the drive's bin, or the bin is off).
+fn bin_warnings(list: &ReviewList) -> Vec<String> {
+    let mut out = Vec::new();
+    for it in list.items() {
+        let Some(root) = crate::sys::drive_root(&it.path) else { continue };
+        match crate::sys::recycle_capacity(&root) {
+            Some((_, true)) => out.push(format!("The Recycle Bin is turned off on {root}: Windows will skip {} (nothing is deleted permanently).", it.path.display())),
+            Some((max, false)) if it.size > max => out.push(format!(
+                "{} ({}) is bigger than the Recycle Bin on {root} (max {}): Windows will skip it. Use Delete permanently, or enlarge the bin.",
+                it.path.display(), size(it.size), size(max))),
+            _ => {}
+        }
+    }
+    out
 }
