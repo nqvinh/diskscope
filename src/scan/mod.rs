@@ -21,6 +21,9 @@ pub struct Progress {
     pub cancel: AtomicBool,
     /// When set, cleanup suggestions are streamed here while the scan runs.
     pub live: std::sync::OnceLock<std::sync::Arc<crate::rules::candidates::LiveSink>>,
+    /// Why the fast NTFS path was not used (empty while it is, or before it was tried); shown
+    /// in the status line during the scan.
+    pub fallback: std::sync::Mutex<String>,
     /// The user's excludes (skip / hide), applied while the tree is built.
     pub filter: std::sync::OnceLock<std::sync::Arc<crate::rules::excludes::ScanFilter>>,
 }
@@ -46,7 +49,13 @@ pub fn scan_with(root: &Path, progress: &Progress, method: Method) -> Result<Tre
         match profile::time("mft total", || mft::scan(&root, progress)) {
             Ok(t) => return Ok(t),
             Err(e) if method == Method::Mft => return Err(e),
-            Err(e) => note = e,
+            Err(e) => {
+                log_fallback(&root, &e);
+                if let Ok(mut f) = progress.fallback.lock() {
+                    f.clone_from(&e);
+                }
+                note = e;
+            }
         }
         for c in [&progress.files, &progress.dirs, &progress.bytes, &progress.denied] {
             c.store(0, Relaxed);
@@ -78,6 +87,19 @@ pub fn scan_many(roots: &[PathBuf], progress: &Progress, method: Method) -> Resu
     all.elapsed_ms = start.elapsed().as_millis() as u64;
     profile::report("all drives (scan + graft)", start.elapsed());
     Ok(all)
+}
+
+/// One line per fast-scan fallback in %LOCALAPPDATA%\diskscope\scan.log (kept under 256 KiB).
+fn log_fallback(root: &Path, why: &str) {
+    use std::io::Write;
+    let file = crate::sys::data_dir().join("scan.log");
+    if std::fs::metadata(&file).is_ok_and(|m| m.len() > 256 << 10) {
+        let _ = std::fs::remove_file(&file);
+    }
+    let _ = std::fs::create_dir_all(crate::sys::data_dir());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
+        let _ = writeln!(f, "{}\t{}\tfast NTFS scan not used: {why}", crate::fmt::date(crate::fmt::now()), root.display());
+    }
 }
 
 /// `C:` -> `C:\` (a bare drive letter means the current directory on that drive otherwise).

@@ -9,10 +9,34 @@ use crate::views::queries::{files_where, folders_to_depth, folders_where, Hit, T
 use crate::views::snapshot;
 use serde_json::{json, Value};
 
+/// DISKSCOPE_GUI_PATH=1: run the window's own scan job (scan thread, live suggestions, every
+/// post-scan pass, scan history) and report time-to-ready, method and any fallback reason.
+fn gui_path(path: &std::path::Path) -> i32 {
+    let start = std::time::Instant::now();
+    let mut job = crate::gui::loaded::ScanJob::start(path.to_path_buf(), &[], Vec::new());
+    loop {
+        match job.poll() {
+            Some(Ok(l)) => {
+                let t = &l.tree;
+                eprintln!("[gui-path] ready in {} ms, method {}, items {}, scan {} ms, note: {}", start.elapsed().as_millis(), t.method, t.node(0).items, t.elapsed_ms, if t.method_note.is_empty() { "-" } else { &t.method_note });
+                return 0;
+            }
+            Some(Err(e)) => {
+                eprintln!("[gui-path] FAILED after {} ms: {e}", start.elapsed().as_millis());
+                return 4;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    }
+}
+
 pub fn run(o: &Options) -> i32 {
     if let Some(p) = o.paths.iter().find(|p| !p.exists()) {
         eprintln!("error: {} does not exist", p.display());
         return 2;
+    }
+    if std::env::var_os("DISKSCOPE_GUI_PATH").is_some() {
+        return gui_path(&o.paths[0]);
     }
     let progress = Progress::default();
     if std::env::var_os("DISKSCOPE_LIVE").is_some() {

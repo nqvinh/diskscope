@@ -55,6 +55,19 @@ impl Header {
             if gear.clicked() {
                 *settings_open = !*settings_open;
             }
+            // Admin state first, so it is never pushed off the bar by a narrow window or large text.
+            if self.elevated {
+                ui.label(RichText::new(" Admin: fast scan ").strong().color(Color32::WHITE).background_color(Color32::from_rgb(30, 120, 60)))
+                    .on_hover_text("Running as administrator: drives are read straight from the NTFS Master File Table");
+            } else {
+                ui.label(RichText::new(" Not admin: slow scan ").strong().color(Color32::WHITE).background_color(Color32::from_rgb(170, 70, 20)))
+                    .on_hover_text("Without administrator rights diskscope walks every folder (minutes instead of seconds)");
+                if ui.button("Restart as administrator").on_hover_text("Fast NTFS scan straight from the MFT (like WizTree). Windows asks for permission.").clicked()
+                    && sys::restart_elevated(&format!("\"{}\"", self.path.trim().trim_end_matches('\\')))
+                {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
             ui.separator();
             ui.label("Scan:");
             egui::ComboBox::from_id_salt("drive").selected_text("Drive").width(70.0).show_ui(ui, |ui| {
@@ -87,12 +100,6 @@ impl Header {
                     }
                 }
             }
-            if !self.elevated
-                && ui.button("Restart as administrator").on_hover_text("Fast NTFS scan straight from the MFT (like WizTree). Windows asks for permission.").clicked()
-                && sys::restart_elevated(&format!("\"{}\"", self.path.trim().trim_end_matches('\\')))
-            {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-            }
             ui.separator();
             self.status(ui, job, data);
         });
@@ -106,16 +113,20 @@ impl Header {
             ui.spinner();
             let secs = j.started.elapsed().as_secs_f64().max(0.1);
             let items = p.files.load(Relaxed) + p.dirs.load(Relaxed);
-            ui.label(format!(
-                "Scanning {}: {} items ({} items/s), {}, {} folders could not be read, {:.0} s. Cancel stops it.",
+            let fallback = p.fallback.lock().map(|f| f.clone()).unwrap_or_default();
+            let how = if !fallback.is_empty() { format!("SLOW folder scan because: {fallback}") } else if self.elevated { "fast NTFS scan".into() } else { "folder scan".into() };
+            let text = format!(
+                "Scanning {} ({how}): {} items ({} items/s), {}, {} folders could not be read, {:.0} s. Cancel stops it.",
                 j.path.display(), count(items), count((items as f64 / secs) as u64),
                 size(p.bytes.load(Relaxed)), p.denied.load(Relaxed), secs
-            ));
+            );
+            let l = ui.add(egui::Label::new(if fallback.is_empty() { RichText::new(&text) } else { RichText::new(&text).color(super::settings::warn()) }).truncate());
+            l.on_hover_text(text);
         } else if let Some(d) = data {
             let t = &d.tree;
             let r = t.node(0);
             let done = if t.cancelled { "Scan CANCELLED (partial)" } else { "Scan complete" };
-            let how = if t.method == "ntfs-mft" { "fast NTFS scan".to_string() } else if t.method_note.is_empty() { "folder scan".into() } else { format!("folder scan; {}", t.method_note.to_lowercase()) };
+            let how = if t.method == "ntfs-mft" { "fast NTFS scan".to_string() } else if t.method_note.is_empty() { "folder scan".into() } else { format!("SLOW folder scan because: {}", t.method_note) };
             let took = if t.elapsed_ms < 1000 { format!("{} ms", t.elapsed_ms) } else { format!("{:.1} s", t.elapsed_ms as f64 / 1000.0) };
             let text = format!(
                 "{done} in {took} · {} files, {} items · {} denied folders · {} links not followed · {how}",
